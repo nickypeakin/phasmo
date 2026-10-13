@@ -3882,6 +3882,14 @@ function updatePropsNet(dt) {
 // The host's browser runs the whole game — ghost, doors, items, sanity — and
 // sends snapshots ~12 times a second; guests send their position and actions.
 const PROTO = 1, PEER_PREFIX = 'phasmo-tanglewood-v1-';
+// Routes for the direct connection: STUN finds a way through home routers;
+// TURN relays the game when a network won't allow a direct connection
+// (PeerJS's free relay, over UDP and over TCP, which more firewalls let through).
+const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478', 'turn:eu-0.turn.peerjs.com:3478?transport=tcp', 'turn:us-0.turn.peerjs.com:3478?transport=tcp'], username: 'peerjs', credential: 'peerjsp' },
+];
+const JOIN_TIMEOUT = 20000;
 const cleanName = (s) => String(s || '').replace(/[<>]/g, '').trim().slice(0, 18) || 'Investigator';
 const r2 = (v) => Math.round(v * 100) / 100;
 const NET = {
@@ -3908,12 +3916,12 @@ const NET = {
   },
   // ?peer=host:port uses a self-hosted PeerJS server (handy for testing)
   opts() {
-    const v = new URLSearchParams(location.search).get('peer'), o = { debug: 1 };
+    const v = new URLSearchParams(location.search).get('peer'), o = { debug: 1, config: { iceServers: ICE_SERVERS, sdpSemantics: 'unified-plan' } };
     if (v) { const [host, port] = v.split(':'); Object.assign(o, { host, port: Number(port) || 9000, path: '/', secure: false, key: 'peerjs' }); }
     return o;
   },
   retry(fn, ms) { clearTimeout(this.retryT); this.retryT = setTimeout(fn, ms); },
-  dropPeer() { if (this.peer) { try { this.peer.destroy(); } catch (e) { /* already gone */ } } this.peer = null; this.conn = null; },
+  dropPeer() { if (this.peer) { try { this.peer.destroy(); } catch (e) { /* already gone */ } } this.peer = null; this.conn = null; this.pending = null; },
   // ---------------- hosting (default for everyone) ----------------
   async host() {
     if (this.disabled || this.role === 'client' || this.peer) return;
@@ -3936,6 +3944,13 @@ const NET = {
   guestCount() { let n = 0; for (const g of this.guests.values()) if (g.online) n++; return n; },
   accept(conn) {
     let pid = null;
+    const stuck = setTimeout(() => {
+      if (conn.open || this.role !== 'host') return;
+      try { conn.close(); } catch (e) { /* ignore */ }
+      if (performance.now() - (this.stuckToastT || -1e9) > 60000) { this.stuckToastT = performance.now(); HUD.toast('A friend found your lobby but couldn’t connect. One of your networks is blocking direct connections (school Wi-Fi often does).', 8); }
+      this.setStatus('online', 'Your lobby is online — but a friend couldn’t connect. A network (often school Wi-Fi) may be blocking direct connections.');
+    }, JOIN_TIMEOUT);
+    conn.on('open', () => clearTimeout(stuck));
     conn.on('data', (m) => {
       if (!m || typeof m !== 'object') return;
       if (pid == null) { if (m.t === 'hello') pid = this.hello(conn, m); return; }
@@ -4041,32 +4056,56 @@ const NET = {
     if (code === this.code) { HUD.toast('That’s your own code — send it to your friends instead.'); if (this.role !== 'host') { this.shutdown(); this.host(); } return; }
     this.shutdown();
     this.role = 'client'; this.hostCode = code; this.myPid = -1; this.ready = false; this.lobby = [];
-    this.setStatus('connecting', `Joining ${code}…`);
+    this.setStatus('connecting', `Joining ${code}: connecting to the online service…`);
     let P;
     try { P = await this.loadPeer(); } catch (e) { this.setStatus('offline', e.message); this.retry(() => this.role === 'client' && this.join(code), 15000); return; }
     if (this.role !== 'client' || this.hostCode !== code) return;
     const peer = this.peer = new P(this.opts());
-    peer.on('open', () => { if (this.peer === peer) this.connectHost(); });
+    const slow = setTimeout(() => { if (this.peer === peer && !peer.open) this.setStatus('offline', 'Can’t reach the online service (peerjs.com). The network may be blocking it (school Wi-Fi often does). Still trying…'); }, 15000);
+    peer.on('open', () => { clearTimeout(slow); if (this.peer === peer) { this.setStatus('connecting', `Joining ${code}: looking for their game…`); this.connectHost(); } });
     peer.on('disconnected', () => { if (this.peer === peer && !peer.destroyed) setTimeout(() => { if (this.peer === peer && !peer.destroyed) peer.reconnect(); }, 2500); });
     peer.on('error', (e) => {
       if (this.peer !== peer) return;
-      if (e.type === 'peer-unavailable') { this.setStatus('waiting', `Waiting for ${code} to open the game… (trying again every few seconds)`); this.retry(() => this.peer === peer && this.connectHost(), 4000); }
+      if (e.type === 'peer-unavailable') {
+        // nobody has that code open right now: drop the attempt and ask again shortly
+        const c = this.pending; this.pending = null; if (c) { try { c.close(); } catch (e2) { /* ignore */ } }
+        this.setStatus('waiting', `Waiting for ${code} to open the game… (make sure their game is open and the code is right; trying again every few seconds)`);
+        this.retry(() => this.peer === peer && this.connectHost(), 4000);
+      }
       else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)) { this.setStatus('offline', 'Can’t reach the online service — retrying…'); this.dropPeer(); this.retry(() => this.role === 'client' && this.join(code), 8000); }
       else console.warn('peer error', e.type);
     });
   },
   connectHost() {
     const peer = this.peer; if (!peer || peer.destroyed) return;
-    if (this.conn) { try { this.conn.close(); } catch (e) { /* ignore */ } this.conn = null; }
-    const c = peer.connect(PEER_PREFIX + this.hostCode, { reliable: true, serialization: 'json' });
+    if (this.conn) { const old = this.conn; this.conn = null; try { old.close(); } catch (e) { /* ignore */ } }
+    if (this.pending) { const old = this.pending; this.pending = null; try { old.close(); } catch (e) { /* ignore */ } }
+    const c = this.pending = peer.connect(PEER_PREFIX + this.hostCode, { reliable: true, serialization: 'json' });
+    // a connection that never opens means a network is blocking it; give up on this try and retry
+    const timer = setTimeout(() => { if (this.pending === c) { this.pending = null; try { c.close(); } catch (e) { /* ignore */ } this.directFailed(); } }, JOIN_TIMEOUT);
     c.on('open', () => {
-      if (this.peer !== peer) { c.close(); return; }
-      this.conn = c; this.heard = performance.now();
+      clearTimeout(timer);
+      if (this.peer !== peer || this.pending !== c) { try { c.close(); } catch (e) { /* ignore */ } return; }
+      this.pending = null; this.conn = c; this.heard = performance.now(); this.failCount = 0;
+      if (this.myPid < 0) this.setStatus('connecting', `Joining ${this.hostCode}: connected, saying hello…`);
       this.send(c, { t: 'hello', v: PROTO, cid: SAVE.profile.cid, name: cleanName(SAVE.profile.name), level: levelFromXp(SAVE.profile.xp) });
+      // the host answers straight away; silence means the connection isn't really working
+      setTimeout(() => { if (this.conn === c && this.myPid < 0) { this.conn = null; try { c.close(); } catch (e) { /* ignore */ } this.lostHost(); } }, 10000);
     });
     c.on('data', (m) => { if (this.conn === c && m && typeof m === 'object') { this.heard = performance.now(); if (m.t === 'bye') { this.conn = null; try { c.close(); } catch (e) { /* ignore */ } this.lostHost(); } else this.fromHost(m); } });
-    const lost = () => { if (this.conn === c) this.lostHost(); };
+    const lost = () => {
+      clearTimeout(timer);
+      if (this.conn === c) this.lostHost();
+      else if (this.pending === c) { this.pending = null; this.directFailed(); }
+    };
     c.on('close', lost); c.on('error', lost);
+  },
+  // we found the host through the online service, but the direct connection didn't open
+  directFailed() {
+    if (this.role !== 'client') return;
+    this.failCount = (this.failCount || 0) + 1;
+    this.setStatus('blocked', `Found ${this.hostCode}’s game but couldn’t connect to it (try ${this.failCount}). A network is probably blocking direct connections; school and work Wi-Fi often do. Try home Wi-Fi or a phone hotspot. Still trying…`);
+    this.retry(() => this.role === 'client' && this.connectHost(), 3000);
   },
   lostHost() {
     this.conn = null; this.myPid = -1;
@@ -4575,7 +4614,7 @@ function lobbyDraw() {
     const me = pl.pid === (guest ? NET.myPid : 0);
     rows.push(`<div class="row"><span>${esc(pl.name)}${me ? ' (you)' : ''} <small style="color:#777">Lv ${pl.level}</small></span><span class="${pl.host || pl.ready ? 'ready' : ''}">${pl.host ? 'Host' : pl.ready ? 'Ready' : 'Not ready'}</span></div>`);
   }
-  const st = NET.status, dot = st === 'online' ? '#1a7f37' : st === 'offline' ? '#9b1c12' : '#b58a2a';
+  const st = NET.status, dot = st === 'online' ? '#1a7f37' : st === 'offline' || st === 'blocked' ? '#9b1c12' : '#b58a2a';
   let online;
   if (guest) {
     online = `<div style="font-size:20px"><span style="color:${dot}">●</span> ${esc(NET.statusText || 'Connecting…')}</div>
@@ -4590,8 +4629,9 @@ function lobbyDraw() {
   }
   $('#lobby-board').innerHTML = `<h2>Investigators</h2>
     <div class="row"><span>Your name</span><input id="pname" maxlength="18" value="${esc(p.name)}" aria-label="Your name" style="width:55%"></div>
+    ${guest && NET.myPid < 0 ? `<div style="margin:6px 0 4px">${online}</div>` : ''}
     ${rows.join('')}
-    <div style="margin-top:10px">${online}</div>
+    ${guest && NET.myPid < 0 ? '' : `<div style="margin-top:10px">${online}</div>`}
     ${guest ? '' : `<div style="margin-top:8px;font-size:19px;display:flex;gap:6px;align-items:center">Join a friend: <input id="joincode" maxlength="6" placeholder="CODE" style="width:6.5em;font:700 18px var(--ui);text-transform:uppercase;border:1px solid #bbb;padding:2px 4px"><button class="btn" data-act="join" style="color:#1d1d1d;border-color:#1b3f8f;font:16px var(--ui)">Join</button></div>`}
     <div style="margin-top:12px;font-size:24px">Level ${lv}</div>
     <div class="xpbar"><i style="width:${clamp((p.xp - lo) / (hi - lo), 0, 1) * 100}%"></i></div>
