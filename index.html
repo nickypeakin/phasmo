@@ -3882,12 +3882,16 @@ function updatePropsNet(dt) {
 // The host's browser runs the whole game — ghost, doors, items, sanity — and
 // sends snapshots ~12 times a second; guests send their position and actions.
 const PROTO = 1, PEER_PREFIX = 'phasmo-tanglewood-v1-';
-// Routes for the direct connection: STUN finds a way through home routers;
-// TURN relays the game when a network won't allow a direct connection
-// (PeerJS's free relay, over UDP and over TCP, which more firewalls let through).
+// Routes for the connection between players. STUN finds a way through home
+// routers. When a network (school Wi-Fi, for example) blocks direct connections,
+// the TURN relay (a free metered.ca account) passes the game through instead,
+// including over TLS on port 443 like a normal website.
 const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478', 'turn:eu-0.turn.peerjs.com:3478?transport=tcp', 'turn:us-0.turn.peerjs.com:3478?transport=tcp'], username: 'peerjs', credential: 'peerjsp' },
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.relay.metered.ca:80'] },
+  {
+    urls: ['turn:global.relay.metered.ca:80', 'turn:global.relay.metered.ca:80?transport=tcp', 'turn:global.relay.metered.ca:443', 'turns:global.relay.metered.ca:443?transport=tcp'],
+    username: 'f235b7dcee55e709a20d62f9', credential: 'sq8qYebXWDQE27LX',
+  },
 ];
 const JOIN_TIMEOUT = 20000;
 const ROUTE_NAMES = { host: 'local network', srflx: 'internet', prflx: 'internet', relay: 'relay' };
