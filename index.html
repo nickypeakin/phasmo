@@ -3890,6 +3890,7 @@ const ICE_SERVERS = [
   { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478', 'turn:eu-0.turn.peerjs.com:3478?transport=tcp', 'turn:us-0.turn.peerjs.com:3478?transport=tcp'], username: 'peerjs', credential: 'peerjsp' },
 ];
 const JOIN_TIMEOUT = 20000;
+const ROUTE_NAMES = { host: 'local network', srflx: 'internet', prflx: 'internet', relay: 'relay' };
 const cleanName = (s) => String(s || '').replace(/[<>]/g, '').trim().slice(0, 18) || 'Investigator';
 const r2 = (v) => Math.round(v * 100) / 100;
 const NET = {
@@ -4081,6 +4082,9 @@ const NET = {
     if (this.conn) { const old = this.conn; this.conn = null; try { old.close(); } catch (e) { /* ignore */ } }
     if (this.pending) { const old = this.pending; this.pending = null; try { old.close(); } catch (e) { /* ignore */ } }
     const c = this.pending = peer.connect(PEER_PREFIX + this.hostCode, { reliable: true, serialization: 'json' });
+    // which ways out this device found (shown if the connection fails, to tell what's blocked)
+    const routes = this.routes = new Set();
+    try { c.peerConnection.addEventListener('icecandidate', (e) => { if (e.candidate && e.candidate.type) routes.add(ROUTE_NAMES[e.candidate.type] || e.candidate.type); }); } catch (e) { /* no peer connection yet */ }
     // a connection that never opens means a network is blocking it; give up on this try and retry
     const timer = setTimeout(() => { if (this.pending === c) { this.pending = null; try { c.close(); } catch (e) { /* ignore */ } this.directFailed(); } }, JOIN_TIMEOUT);
     c.on('open', () => {
@@ -4104,7 +4108,7 @@ const NET = {
   directFailed() {
     if (this.role !== 'client') return;
     this.failCount = (this.failCount || 0) + 1;
-    this.setStatus('blocked', `Found ${this.hostCode}’s game but couldn’t connect to it (try ${this.failCount}). A network is probably blocking direct connections; school and work Wi-Fi often do. Try home Wi-Fi or a phone hotspot. Still trying…`);
+    this.setStatus('blocked', `Found ${this.hostCode}’s game but couldn’t connect to it (try ${this.failCount}). A network is probably blocking direct connections; school and work Wi-Fi often do. Try home Wi-Fi or a phone hotspot. Still trying… (routes found here: ${this.routes && this.routes.size ? [...this.routes].join(', ') : 'none'})`);
     this.retry(() => this.role === 'client' && this.connectHost(), 3000);
   },
   lostHost() {
