@@ -360,6 +360,11 @@ function loadSave() {
     if (it.core) p.owned[id] = Math.max(1, p.owned[id]);
   }
   p.stats = p.stats || { contracts: 0, deaths: 0, correct: 0 };
+  // your permanent online lobby code (your invite link never changes) and a private id to rejoin with
+  const rc = (n) => Array.from({ length: n }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+  if (!/^[A-Z2-9]{6}$/.test(p.code || '')) p.code = rc(6);
+  if (!p.cid) p.cid = rc(16);
+  persist();
   if (!DIFFS[SAVE.diff]) SAVE.diff = 'amateur';
 }
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) { /* ignore */ } }
@@ -722,6 +727,9 @@ const SFX = {
   van() { AudioSys.tone({ freq: 110, freqEnd: 70, gain: 0.5, d: 0.4 }); AudioSys.noise({ freq: 400, gain: 0.5, d: 0.5 }); },
   bulb(pos) { AudioSys.noise({ pos, freq: 5000, q: 0.8, gain: 0.5, d: 0.05 }); AudioSys.noise({ pos, freq: 3000, type: 'highpass', gain: 0.3, d: 0.3, delay: 0.04 }); },
   phone(pos) { for (let i = 0; i < 2; i++) AudioSys.tone({ pos, wave: 'square', freq: 440, gain: 0.08, d: 0.9, delay: i * 1.6, vib: 30, vibRate: 20, lp: 1800 }); },
+  scribble(pos) { for (let i = 0; i < 8; i++) AudioSys.noise({ pos, freq: rand(2000, 4000), q: 3, gain: 0.12, d: 0.05, delay: i * 0.09 }); },
+  vanDoor(pos) { AudioSys.tone({ pos, freq: 95, freqEnd: 55, gain: 0.6, d: 0.3 }); AudioSys.noise({ pos, freq: 1400, q: 1.5, gain: 0.35, d: 0.25 }); AudioSys.noise({ pos, freq: 3000, q: 4, gain: 0.12, a: 0.05, d: 0.5, delay: 0.05 }); },
+  say(pos, word) { if (PLAYER.eye.distanceTo(pos) < 8) AudioSys.speak(word, { vol: 0.6 }); },
 };
 
 // ---------------------------------------------------------------- GFX -------
@@ -1101,6 +1109,8 @@ function textCanvasTex(w, h) { return canvasTex(w, h, () => {}, { clamp: true, m
 //        │      │chen│ai│       │                       │
 //  z=13  └──────┴────┴rs┴──D────┴───────────────────────┘   street + van
 const H = 2.6, BY = -2.8, VAN_FLOOR = 0.55;
+// the van parks on the street on the garage/driveway side, like the real map
+const VAN_DX = -8.3, VX0 = 10 + VAN_DX, VX1 = 12.6 + VAN_DX, VXC = 11.3 + VAN_DX;
 const W2 = 0.1;          // half wall thickness
 const STAIR = { x0: 6, x1: 7.4, z0: 8.5, z1: 13, top: 9.0, bot: 12.4 };
 const ROOM_DEFS = [
@@ -1116,7 +1126,7 @@ const ROOM_DEFS = [
   { id: 'foyer', name: 'Foyer', rects: [[11.5, 6.5, 14.5, 13]], wall: 'wpGreen', floor: 'wood', surf: 'wood', light: [13, 2.45, 9.75], range: 5.8, temp: 17, ghost: 0.6 },
   { id: 'living', name: 'Living Room', rects: [[14.5, 6.5, 24, 13]], wall: 'wpGreen', floor: 'wood', surf: 'wood', light: [19.25, 2.45, 9.75], range: 7.8, temp: 19, ghost: 1.3 },
   { id: 'basement', name: 'Basement', rects: [[3.5, 5, 14, 13, BY - 0.05, -0.15], [6, 8.5, 7.4, 13, BY - 0.05, H + 0.1]], wall: 'concrete', floor: 'concrete', surf: 'concrete', light: [8.8, -0.45, 9.2], range: 9.5, base: 0.75, temp: 13, ghost: 1.5, level: -1 },
-  { id: 'van', name: 'Van', rects: [[10, 17.45, 12.6, 23, 0.3, 3]], light: [11.3, 2.6, 20.3], range: 5.5, base: 0.5, temp: 20, house: false },
+  { id: 'van', name: 'Van', rects: [[VX0, 17.45, VX1, 23, 0.3, 3]], light: [VXC, 2.6, 20.3], range: 5.5, base: 0.5, temp: 20, house: false },
   { id: 'lobby', name: 'Lobby', rects: [[100, 100, 107, 106, -0.1, 3.1]], light: [103.5, 2.5, 102.8], range: 6.5, base: 0.85, temp: 20, house: false },
 ];
 const ROOMS = [];
@@ -1142,7 +1152,7 @@ function roomAt(x, y, z) {
 }
 function floorAt(x, z, y) {
   if (x > STAIR.x0 && x < STAIR.x1 && z > STAIR.z0 && z < STAIR.z1) return BY * clamp((z - STAIR.top) / (STAIR.bot - STAIR.top), 0, 1);
-  if (x > 10 && x < 12.6 && z > 17.45 && z < 23) return VAN_FLOOR;
+  if (x > VX0 && x < VX1 && z > 17.45 && z < 23) return VAN_FLOOR;
   if (y < -1.2 && x > 3.5 && x < 14 && z > 5 && z < 13) return BY;
   return 0;
 }
@@ -1283,7 +1293,7 @@ class Door {
     WORLD.interact.push({
       kind: 'door', ref: this, r: 0.5, pos: () => this.center(_v3),
       label: () => (this.locked ? 'Locked' : this.angle > 0.15 ? 'Close door' : 'Open door'),
-      use: () => this.playerToggle(),
+      use: () => (NET.role === 'client' ? NET.action({ k: 'door', i: WORLD.doors.indexOf(this) }) : this.playerToggle()),
     });
   }
   get isClosed() { return this.angle < 0.06; }
@@ -1294,15 +1304,15 @@ class Door {
   }
   rot() { return this.base + (this.axis === 'x' ? -this.swing : this.swing) * this.angle * 1.7; }
   playerToggle() {
-    if (this.locked) { SFX.thud(this.center(V3()), 0.4); return; }
+    if (this.locked) { wfx('thud', this.center(V3()), 0.4); return; }
     this.target = this.angle > 0.15 ? 0 : 1; this.speed = 2.6;
-    if (this.target > 0) SFX.doorOpen(this.center(V3())); else this.closing = true;
+    if (this.target > 0) wfx('doorOpen', this.center(V3())); else this.closing = true;
   }
   set(target, speed = 2, sound = true) {
     if (this.locked && target > 0) return;
     this.target = target; this.speed = speed;
     const p = this.center(V3());
-    if (sound) { if (speed > 5 && target === 0) this.slamming = true; else if (target < this.angle) this.closing = true; else SFX.creak(p); }
+    if (sound) { if (speed > 5 && target === 0) this.slamming = true; else if (target < this.angle) this.closing = true; else wfx('creak', p); }
   }
   update(dt) {
     if (this.angle !== this.target) {
@@ -1310,7 +1320,8 @@ class Door {
       this.angle = Math.abs(d) <= s ? this.target : this.angle + Math.sign(d) * s;
       if (this.angle === 0 && (this.closing || this.slamming)) {
         const p = this.center(V3());
-        if (this.slamming) SFX.doorSlam(p); else SFX.doorClose(p);
+        // guests hear these through the host's sound events
+        if (NET.role !== 'client') wfx(this.slamming ? 'doorSlam' : 'doorClose', p);
         this.closing = this.slamming = false;
       }
       this.pivot.rotation.y = this.rot();
@@ -1330,11 +1341,11 @@ class Switch {
     WORLD.scene.add(g); this.group = g;
     this.prints = [];
     WORLD.switches.push(this);
-    WORLD.interact.push({ kind: 'switch', ref: this, r: 0.24, pos: () => this.pos, label: () => (room.switchOn ? 'Turn light off' : 'Turn light on'), use: () => this.toggle(true) });
+    WORLD.interact.push({ kind: 'switch', ref: this, r: 0.24, pos: () => this.pos, label: () => (room.switchOn ? 'Turn light off' : 'Turn light on'), use: () => (NET.role === 'client' ? NET.action({ k: 'switch', i: WORLD.switches.indexOf(this) }) : this.toggle(true)) });
   }
   toggle(byPlayer) {
     this.room.switchOn = !this.room.switchOn;
-    SFX.click(this.pos);
+    wfx('click', this.pos);
     this.sync();
     if (byPlayer && GAME.active) GAME.onPlayerLight(this.room);
   }
@@ -1711,16 +1722,14 @@ function buildExterior() {
 }
 
 // ---- the van: equipment rack, monitors, whiteboard, exit button ----
-const VAN = { rackSlots: [], screens: {}, spawn: V3(11.3, VAN_FLOOR, 21.6) };
+const VAN = { rackSlots: [], screens: {}, spawn: V3(VXC, VAN_FLOOR, 21.6), doors: null };
 function buildVan() {
-  const g = SB;
-  const x0 = 9.9, x1 = 12.7, z0 = 17.4, z1 = 23.1, y0 = 0.45, y1 = 2.95;
+  const g = SB, D = VAN_DX;
+  const x0 = 9.9 + D, x1 = 12.7 + D, z0 = 17.4, z1 = 23.1, y0 = 0.45, y1 = 2.95;
   g.box(M.van, x0, y0, z0, x0 + 0.1, y1, z1); g.box(M.van, x1 - 0.1, y0, z0, x1, y1, z1); g.box(M.van, x0, y0, z1 - 0.1, x1, y1, z1); g.box(M.van, x0, y1 - 0.1, z0, x1, y1, z1);
   g.box(M.rubber, x0, y0, z0, x1, VAN_FLOOR, z1);
   g.box(M.metal, x0 + 0.1, VAN_FLOOR, z0, x0 + 0.11, y1 - 0.1, z1 - 0.1); g.box(M.metal, x1 - 0.11, VAN_FLOOR, z0, x1 - 0.1, y1 - 0.1, z1 - 0.1);
   addCol(x0, x0 + 0.1, z0, z1, y0, y1); addCol(x1 - 0.1, x1, z0, z1, y0, y1); addCol(x0, x1, z1 - 0.1, z1 + 2.6, 0, y1);
-  // rear doors folded open and step
-  g.box(M.van, x0 - 0.06, y0, z0 + 0.05, x0, y1 - 0.1, z0 + 1.25); g.box(M.van, x1, y0, z0 + 0.05, x1 + 0.06, y1 - 0.1, z0 + 1.25);
   g.box(M.dgrey, x0 + 0.3, 0.2, z0 - 0.35, x1 - 0.3, 0.27, z0);
   // cab
   g.box(M.van, x0 + 0.05, y0, z1, x1 - 0.05, 2.35, z1 + 1.9); g.box(M.dgrey, x0 + 0.1, 1.4, z1 + 1.9, x1 - 0.1, 2.2, z1 + 1.92);
@@ -1728,41 +1737,66 @@ function buildVan() {
   g.box(M.dgrey, x0 + 0.08, 1.4, z1 + 0.3, x0 + 0.06, 2.1, z1 + 1.6); g.box(M.dgrey, x1 - 0.06, 1.4, z1 + 0.3, x1 - 0.08, 2.1, z1 + 1.6);
   for (const z of [18.4, 21.8, z1 + 1.5]) for (const x of [x0 - 0.02, x1 + 0.02]) { const w = cyl(M.tire, 0.42, 0.42, 0.28, 10, x, 0.42, z); w.rotation.z = Math.PI / 2; WORLD.scene.add(w); }
   g.box(M.dgrey, x0, 0.25, z0, x1, y0, z1 + 2.55);
+  // rear doors: two leaves hinged at the back corners, closed at the start
+  const leafW = (x1 - x0) / 2 - 0.02, leafH = y1 - y0 - 0.12;
+  const mkLeaf = (hx, dir) => {
+    const pv = new THREE.Group(); pv.position.set(hx, y0, z0 - 0.03); WORLD.scene.add(pv);
+    bx(M.van, leafW, leafH, 0.05, dir * leafW / 2, leafH / 2, 0, pv);
+    bx(M.dgrey, leafW - 0.2, 0.5, 0.06, dir * leafW / 2, leafH * 0.72, 0, pv);
+    bx(M.chrome, 0.05, 0.25, 0.08, dir * (leafW - 0.12), leafH * 0.45, -0.02, pv);
+    return pv;
+  };
+  const L = mkLeaf(x0, 1), R = mkLeaf(x1, -1);
+  const col = addCol(x0, x1, z0 - 0.06, z0, y0, y1);
+  VAN.doors = {
+    angle: 0, target: 0, col, L, R,
+    pos: V3((x0 + x1) / 2, 1.5, z0),
+    get open() { return this.target > 0.5; },
+    set(open, sound = true) {
+      if (this.target === (open ? 1 : 0)) return;
+      this.target = open ? 1 : 0;
+      if (sound) wfx('vanDoor', this.pos);
+    },
+    snap(open) { this.angle = this.target = open ? 1 : 0; this.sync(); },
+    sync() { this.L.rotation.y = this.angle * 1.9; this.R.rotation.y = -this.angle * 1.9; this.col.off = this.angle > 0.15; },
+    update(dt) { if (this.angle !== this.target) { const d = this.target - this.angle, st = dt * 1.6; this.angle = Math.abs(d) <= st ? this.target : this.angle + Math.sign(d) * st; this.sync(); } },
+  };
+  WORLD.interact.push({ kind: 'vandoor', r: 1.0, pos: () => VAN.doors.pos, label: () => (VAN.doors.open ? 'Close the van doors' : 'Open the van doors'), use: () => GAME.toggleVanDoors() });
   // desk + monitors
-  g.box(M.darkwood, 12.0, VAN_FLOOR, 18.9, 12.6, 1.5, 22.95); addCol(12.0, 12.6, 18.9, 22.95, VAN_FLOOR, 1.5);
+  g.box(M.darkwood, 12.0 + D, VAN_FLOOR, 18.9, 12.6 + D, 1.5, 22.95); addCol(12.0 + D, 12.6 + D, 18.9, 22.95, VAN_FLOOR, 1.5);
   const mons = [['activity', 19.55], ['cctv', 20.85], ['map', 22.15]];
   for (const [id, z] of mons) {
-    g.box(M.black, 12.42, 1.55, z - 0.62, 12.5, 2.27, z + 0.62);
+    g.box(M.black, 12.42 + D, 1.55, z - 0.62, 12.5 + D, 2.27, z + 0.62);
     const tex = id === 'cctv' ? null : textCanvasTex(256, 144);
     const mat = basicMat({ color: 0xffffff, map: tex });
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.14, 0.64), mat);
-    scr.position.set(12.41, 1.91, z); scr.rotation.y = -Math.PI / 2; WORLD.scene.add(scr);
+    scr.position.set(12.41 + D, 1.91, z); scr.rotation.y = -Math.PI / 2; WORLD.scene.add(scr);
     VAN.screens[id] = { mesh: scr, mat, tex, pos: scr.position.clone() };
   }
   VAN.screens.cctv.mat.color.set(0x9dff9d);
   WORLD.interact.push({ kind: 'cctv', r: 0.6, pos: () => VAN.screens.cctv.pos, label: () => 'Switch camera', use: () => GAME.cycleCamera() });
   // whiteboard
-  g.box(M.lgrey, 10.25, 1.05, 22.93, 11.9, 2.25, 23.0);
+  g.box(M.lgrey, 10.25 + D, 1.05, 22.93, 11.9 + D, 2.25, 23.0);
   const wbTex = textCanvasTex(256, 192);
   const wb = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 1.12), basicMat({ map: wbTex }));
-  wb.position.set(11.075, 1.65, 22.92); wb.rotation.y = Math.PI; WORLD.scene.add(wb);
+  wb.position.set(11.075 + D, 1.65, 22.92); wb.rotation.y = Math.PI; WORLD.scene.add(wb);
   VAN.board = { tex: wbTex, mesh: wb };
   // rack
-  g.box(M.metal, 10.0, VAN_FLOOR, 18.3, 10.55, VAN_FLOOR + 0.02, 22.85);
-  for (const y of [1.1, 1.75]) g.box(M.metal, 10.0, y - 0.03, 18.3, 10.55, y, 22.85);
-  for (const z of [18.3, 20.55, 22.85]) g.box(M.metal, 10.0, VAN_FLOOR, z - 0.02, 10.55, 2.35, z + 0.02);
-  addCol(10.0, 10.55, 18.3, 22.85, VAN_FLOOR, 2.35, { rack: true });
+  g.box(M.metal, 10.0 + D, VAN_FLOOR, 18.3, 10.55 + D, VAN_FLOOR + 0.02, 22.85);
+  for (const y of [1.1, 1.75]) g.box(M.metal, 10.0 + D, y - 0.03, 18.3, 10.55 + D, y, 22.85);
+  for (const z of [18.3, 20.55, 22.85]) g.box(M.metal, 10.0 + D, VAN_FLOOR, z - 0.02, 10.55 + D, 2.35, z + 0.02);
+  addCol(10.0 + D, 10.55 + D, 18.3, 22.85, VAN_FLOOR, 2.35, { rack: true });
   for (let i = 0; i < 12; i++) {
     const shelf = i < 6 ? 1.75 : 1.1, z = 18.55 + (i % 6) * 0.72;
-    VAN.rackSlots.push({ pos: V3(10.3, shelf, z), type: null, mesh: null, label: null });
+    VAN.rackSlots.push({ pos: V3(10.3 + D, shelf, z), type: null, mesh: null, label: null });
   }
   // exit button
-  g.box(M.dgrey, 12.56, 1.25, 17.95, 12.6, 1.55, 18.25);
-  const btn = new THREE.Mesh(UNIT_BOX, basicMat({ color: 0xc0281e })); btn.scale.set(0.05, 0.1, 0.1); btn.position.set(12.54, 1.4, 18.1); WORLD.scene.add(btn);
+  g.box(M.dgrey, 12.56 + D, 1.25, 17.95, 12.6 + D, 1.55, 18.25);
+  const btn = new THREE.Mesh(UNIT_BOX, basicMat({ color: 0xc0281e })); btn.scale.set(0.05, 0.1, 0.1); btn.position.set(12.54 + D, 1.4, 18.1); WORLD.scene.add(btn);
   VAN.exitBtn = btn;
   WORLD.interact.push({ kind: 'exit', r: 0.3, pos: () => btn.position, label: () => (GAME.hunt ? 'Cannot leave during a hunt' : 'End contract (leave)'), use: () => GAME.requestLeave() });
   // shelf light strip
-  const strip = new THREE.Mesh(UNIT_BOX, M.bulbOn); strip.scale.set(1.6, 0.03, 0.1); strip.position.set(11.3, 2.83, 20.3); WORLD.scene.add(strip);
+  const strip = new THREE.Mesh(UNIT_BOX, M.bulbOn); strip.scale.set(1.6, 0.03, 0.1); strip.position.set(VXC, 2.83, 20.3); WORLD.scene.add(strip);
 }
 
 // ---- nav graph for the ghost ----
@@ -1844,7 +1878,7 @@ function navRooms(room) { return NAV.filter((n) => n.room === room && n.rooms.le
 
 // ---------------------------------------------------------------- ITEMS -----
 const EMF_COLORS = [0x37ff5a, 0x8dff3a, 0xfff03a, 0xffa12a, 0xff2a2a];
-const ITEM_LIST = [];         // every item instance in the contract
+const ITEM_LIST = [];         // every item instance in the contract (ids are shared with guests)
 const PRINTS = [];            // UV fingerprints / footprints
 const SALT = [];              // salt piles
 let handTex, sixTex, footTex, dotTex;
@@ -1865,16 +1899,35 @@ function makeDecalTextures() {
   dotTex = canvasTex(32, 32, (g) => { const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); }, { clamp: true, linear: true });
 }
 const PRINT_GEO = new THREE.PlaneGeometry(1, 1);
-function addPrint(kind, parent, x, y, z, ry = 0, rx = 0, scale = 0.14) {
+function addPrint(kind, parent, x, y, z, ry = 0, rx = 0, scale = 0.14, life = null) {
   const mat = new THREE.MeshBasicMaterial({ map: kind === 'foot' ? footTex : kind === 'six' ? sixTex : handTex, color: 0x6dff8e, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide, fog: false });
   const m = new THREE.Mesh(PRINT_GEO, mat);
   m.scale.set(kind === 'foot' ? scale * 0.5 : scale, scale, 1);
   m.position.set(x, y, z); m.rotation.set(rx, ry, 0); m.rotation.order = 'YXZ';
   m.renderOrder = 3; m.visible = false;
   parent.add(m);
-  const p = { mesh: m, mat, life: DIFFS[GAME.diff].prints * (GAME.ghost && GAME.ghost.type.id === 'obake' ? 0.5 : 1), kind, at: GAME.time };
+  const p = { mesh: m, mat, life: life ?? DIFFS[GAME.diff].prints * (GAME.ghost && GAME.ghost.type.id === 'obake' ? 0.5 : 1), kind, at: GAME.time };
   PRINTS.push(p);
   return p;
+}
+// prints are placed by the host and replayed on every guest's machine
+function makePrint(kind, t, life = null) {
+  switch (t.k) {
+    case 'door': { const d = WORLD.doors[t.i]; if (!d) return; const lx = d.width - 0.2; d.prints.push(addPrint(kind, d.pivot, lx, t.ly, 0.029, 0, 0, 0.14, life), addPrint(kind, d.pivot, lx, t.ly, -0.029, Math.PI, 0, 0.14, life)); break; }
+    case 'switch': { const s = WORLD.switches[t.i]; if (s) addPrint(kind, s.group, 0, -0.01, 0.009, 0, 0, 0.07, life); break; }
+    case 'win': { const w = WORLD.windows[t.i]; if (w) addPrint(kind, w.mesh, t.lx, t.ly, 0.004, 0, 0, 0.17, life); break; }
+    case 'floor': addPrint('foot', WORLD.scene, t.x, t.y, t.z, t.ry, -Math.PI / 2, 0.3, life); break;
+  }
+}
+function printAt(kind, t) {
+  const life = DIFFS[GAME.diff].prints * (GAME.ghost && GAME.ghost.type.id === 'obake' ? 0.5 : 1);
+  makePrint(kind, t, life);
+  NET.event('pt', [kind, t, life]);
+}
+// a world sound: played here and, when hosting, on every guest's machine too
+function wfx(name, pos, ...args) {
+  if (SFX[name]) SFX[name](pos, ...args);
+  if (NET.role === 'host') NET.event('fx', [name, +pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2), ...args]);
 }
 function updatePrints(dt) {
   const uvOn = U.uUVP.value.w > 0;
@@ -1989,7 +2042,8 @@ function drawBookPage(g, written, seed = 1) {
 
 // ---- item instance ----
 class Item {
-  constructor(type) {
+  constructor(type, id) {
+    this.id = id ?? Item.nextId++;
     this.type = type; this.def = ITEMS[type];
     this.on = false; this.where = 'rack'; this.uses = type === 'salt' ? 3 : type === 'crucifix' ? 2 : 1;
     this.mesh = buildModel(this);
@@ -1999,6 +2053,14 @@ class Item {
     ITEM_LIST.push(this);
   }
   get electronic() { return !!this.def.elec; }
+  netState() { return { on: this.on ? 1 : 0, u: this.uses, w: this.written || 0, l: this.lit ? 1 : 0, b: +(this.burn || 0).toFixed(1) }; }
+  applyState(st, sound = false) {
+    if (!st) return;
+    if (this.def.toggle && !!st.on !== this.on) this.setOn(!!st.on, sound);
+    if (st.u != null) this.uses = st.u;
+    if (st.w && !this.written && this.type === 'book') { this.written = st.w; drawBookPage(this.parts.tex.userData.g, true, st.w); this.parts.tex.needsUpdate = true; }
+    if (this.type === 'smudge' && st.l && !this.lit) { this.lit = true; this.burn = st.b || 10; this.parts.tip.color.set(0xff7a22); }
+  }
   get active() { return this.electronic && (this.on || this.type === 'photo'); }
   worldPos(out) { return this.mesh.getWorldPosition(out); }
   setOn(v, sound = true) {
@@ -2030,6 +2092,8 @@ class Item {
   }
 }
 
+Item.nextId = 1;
+
 // ---- held item view model + placement ----
 const HOLD = {
   emf: [0.17, -0.17, -0.34, -0.5, 0, 0], thermometer: [0.17, -0.17, -0.34, -0.5, 0, 0], spiritbox: [0.17, -0.17, -0.36, -0.55, 0, 0],
@@ -2048,7 +2112,8 @@ function attachToHand(it, hand) {
   it.mesh.traverse((o) => { o.castShadow = false; });
 }
 function placeInWorld(it, pos, yaw) {
-  it.where = 'world';
+  it.where = 'world'; it.holder = null;
+  it.placePos = pos.clone(); it.placeYaw = yaw;
   WORLD.scene.add(it.mesh);
   it.mesh.position.copy(pos); it.mesh.rotation.set(0, yaw, 0); it.mesh.visible = true;
   const lift = { emf: 0.014, thermometer: 0.013, spiritbox: 0.015, uv: 0.026, dots: 0.035, photo: 0.04, salt: 0.065, pills: 0.035, smudge: 0.025 }[it.type] || 0;
@@ -2193,7 +2258,7 @@ class Ghost {
     this.nextInteract = rand(8, 16); this.nextEvent = rand(70, 120); this.nextHuntCheck = 1; this.cooldown = 0; this.block = 0; this.blind = 0;
     this.nextTeleport = rand(60, 120); this.nextDots = rand(8, 18); this.nextAge = rand(60, 100); this.thayeAge = 0;
     this.losTime = 0; this.lastSeen = -99; this.knowsHidden = false; this.target = null; this.repath = 0;
-    this.event = null; this.hunt = null; this.visible = false; this.walkPhase = 0;
+    this.event = null; this.hunt = null; this.visible = false; this.walkPhase = 0; this.eventSerial = 0; this.lastSeenAt = new Map(); this.knows = new Set();
     this.m = buildGhostModel(this.kind); this.m.root.visible = false; scene.add(this.m.root);
     const dm = basicMat({ color: 0x4dff6a, transparent: true, opacity: 0.55, depthWrite: false });
     this.dots = buildGhostModel(this.kind, dm); this.dots.root.visible = false; this.dotsMat = dm; scene.add(this.dots.root);
@@ -2275,7 +2340,9 @@ class Ghost {
       this.wait -= dt;
       if (this.wait <= 0) { this.goTo(this.pickWanderTarget()); this.wait = rand(3, 9); }
     }
-    const act = GAME.activityMul() * (id === 'oni' ? 1.4 : id === 'shade' && PLAYER.room === this.room ? 0.45 : id === 'thaye' ? Math.max(0.4, 1.5 - this.thayeAge * 0.1) : 1);
+    const inside = PL.inHouse();
+    const shy = id === 'shade' && inside.some((p) => p.room === this.room);
+    const act = GAME.activityMul() * (id === 'oni' ? 1.4 : shy ? 0.45 : id === 'thaye' ? Math.max(0.4, 1.5 - this.thayeAge * 0.1) : 1);
     // interactions
     this.nextInteract -= dt * act;
     if (this.nextInteract <= 0) {
@@ -2287,15 +2354,15 @@ class Ghost {
     this.nextEvent -= dt * act * (id === 'myling' ? 1.2 : 1);
     if (this.nextEvent <= 0) {
       this.nextEvent = rand(55, 110);
-      if (PLAYER.inHouse && GAME.setupLeft <= 0 || PLAYER.inHouse && chance(0.4)) this.startEvent();
+      if (inside.length && (GAME.setupLeft <= 0 || chance(0.4))) this.startEvent(pick(inside));
     }
     // wraith teleport
     if (id === 'wraith') {
       this.nextTeleport -= dt;
-      if (this.nextTeleport <= 0) { this.nextTeleport = rand(70, 140); if (PLAYER.inHouse) GAME.addEMF(PLAYER.pos.clone().setY(PLAYER.pos.y + 0.3), GAME.emfLevel(2)); }
+      if (this.nextTeleport <= 0) { this.nextTeleport = rand(70, 140); const P = pick(inside); if (P) GAME.addEMF(P.pos.clone().setY(P.pos.y + 0.3), GAME.emfLevel(2)); }
     }
     // thaye ages while people are near
-    if (id === 'thaye') { this.nextAge -= dt * (PLAYER.inHouse && PLAYER.pos.distanceTo(this.pos) < 7 ? 1 : 0.15); if (this.nextAge <= 0) { this.nextAge = rand(60, 100); this.thayeAge = Math.min(10, this.thayeAge + 1); } }
+    if (id === 'thaye') { this.nextAge -= dt * (inside.some((p) => p.pos.distanceTo(this.pos) < 7) ? 1 : 0.15); if (this.nextAge <= 0) { this.nextAge = rand(60, 100); this.thayeAge = Math.min(10, this.thayeAge + 1); } }
     // hunts
     this.nextHuntCheck -= dt;
     if (this.nextHuntCheck <= 0) {
@@ -2306,15 +2373,15 @@ class Ghost {
   }
   canHunt() {
     if (!GAME.active || GAME.setupLeft > 0 || this.cooldown > 0 || this.block > 0) return false;
-    if (this.id === 'shade' && PLAYER.room === this.room) return false;
-    return GAME.sanity <= this.threshold();
+    if (this.id === 'shade' && PL.inHouse().some((p) => p.room === this.room)) return false;
+    return PL.avgSanity() <= this.threshold();
   }
   tryHunt() {
     // crucifix / flame checks happen where the hunt would start
     const r = this.id === 'demon' ? 5 : 3;
     for (const it of ITEM_LIST) {
       if (it.type === 'crucifix' && it.where === 'world' && it.uses > 0 && it.mesh.position.distanceTo(this.pos) < r && Math.abs(it.mesh.position.y - this.pos.y) < 1.5) {
-        it.uses--; SFX.sizzle(it.mesh.position);
+        it.uses--; wfx('sizzle', it.mesh.position);
         it.parts.mat.color.set(it.uses > 0 ? 0x5a3a1a : 0x1a1410); it.parts.mat.emissive.set(0x802000);
         setTimeout(() => it.parts.mat.emissive.set(0x000000), 1500);
         this.cooldown = 20; GAME.objective('crucifix'); return;
@@ -2347,8 +2414,7 @@ class Ghost {
         GAME.addEMF(p, ev(2));
         if (GAME.has('uv') && chance(id === 'obake' ? 0.75 : 1)) {
           const six = id === 'obake' && chance(0.25) ? 'six' : 'hand';
-          const lx = obj.width - 0.2, ly = 1.0 + rand(-0.12, 0.25);
-          obj.prints.push(addPrint(six, obj.pivot, lx, ly, 0.029, 0), addPrint(six, obj.pivot, lx, ly, -0.029, Math.PI));
+          printAt(six, { k: 'door', i: WORLD.doors.indexOf(obj), ly: 1.0 + rand(-0.12, 0.25) });
         }
         break;
       }
@@ -2356,7 +2422,7 @@ class Ghost {
         if (id === 'mare' && !obj.room.switchOn) break;
         obj.toggle(false);
         GAME.addEMF(obj.pos.clone(), ev(2));
-        if (GAME.has('uv') && chance(id === 'obake' ? 0.75 : 1)) addPrint(id === 'obake' && chance(0.25) ? 'six' : 'hand', obj.group, 0, -0.01, 0.009, 0, 0, 0.07);
+        if (GAME.has('uv') && chance(id === 'obake' ? 0.75 : 1)) printAt(id === 'obake' && chance(0.25) ? 'six' : 'hand', { k: 'switch', i: WORLD.switches.indexOf(obj) });
         break;
       }
       case 'prop': {
@@ -2366,24 +2432,25 @@ class Ghost {
         for (const p of list) {
           throwProp(p);
           GAME.addEMF(p.mesh.position.clone(), ev(3));
-          if (id === 'poltergeist' && PLAYER.room === this.room) GAME.drain(2);
+          if (id === 'poltergeist') for (const pl of PL.inHouse()) if (pl.room === this.room) GAME.drainP(pl, 2);
         }
         break;
       }
       case 'window': {
-        SFX.knock(obj.pos);
+        wfx('knock', obj.pos);
         GAME.addEMF(obj.pos.clone(), ev(2));
-        if (GAME.has('uv')) addPrint(id === 'obake' && chance(0.25) ? 'six' : 'hand', obj.mesh, rand(-0.25, 0.25), rand(-0.15, 0.2), 0.004, 0, 0, 0.17);
+        if (GAME.has('uv')) printAt(id === 'obake' && chance(0.25) ? 'six' : 'hand', { k: 'win', i: WORLD.windows.indexOf(obj), lx: rand(-0.25, 0.25), ly: rand(-0.15, 0.2) });
         break;
       }
       case 'book': {
         const p = obj.mesh.position;
         if (GAME.has('wri') && !obj.written) {
-          obj.written = true; drawBookPage(obj.parts.tex.userData.g, true, randi(0, 5)); obj.parts.tex.needsUpdate = true;
-          for (let i = 0; i < 8; i++) AudioSys.noise({ pos: p, freq: rand(2000, 4000), q: 3, gain: 0.12, d: 0.05, delay: i * 0.09 });
+          obj.written = randi(1, 6); drawBookPage(obj.parts.tex.userData.g, true, obj.written); obj.parts.tex.needsUpdate = true;
+          wfx('scribble', p);
         } else if (!obj.written) {
-          SFX.thud(p, 0.5); obj.mesh.rotation.y += rand(-1, 1);
-          obj.mesh.position.x += rand(-0.3, 0.3); obj.mesh.position.z += rand(-0.3, 0.3);
+          wfx('thud', p, 0.5);
+          const np = obj.placePos.clone(); np.x += rand(-0.3, 0.3); np.z += rand(-0.3, 0.3);
+          collideCircle(np, 0.15, np.y); placeInWorld(obj, np, obj.placeYaw + rand(-1, 1));
         }
         GAME.addEMF(p.clone(), ev(2));
         break;
@@ -2395,69 +2462,78 @@ class Ghost {
       }
       default: {
         const p = from.clone().setY(from.y + 0.2);
-        if (chance(0.5)) { for (let i = 0; i < 4; i++) setTimeout(() => SFX.ghostStep(V3(p.x + i * 0.4, p.y, p.z), 0.35), i * 520); }
-        else if (chance(0.5)) SFX.creak(p); else SFX.knock(p);
+        if (chance(0.5)) { for (let i = 0; i < 4; i++) setTimeout(() => wfx('ghostStep', V3(p.x + i * 0.4, p.y, p.z), 0.35), i * 520); }
+        else if (chance(0.5)) wfx('creak', p); else wfx('knock', p);
       }
     }
     GAME.activity(kind === 'sound' ? 1 : kind === 'prop' ? 4 : 2.5);
   }
   // ---------- ghost events ----------
-  startEvent() {
+  startEvent(P) {
+    P = P || pick(PL.inHouse());
+    if (!P) return;
     const id = this.id;
     const kind = weighted([['appear', 3], ['chase', 2.5], ['airball', id === 'oni' ? 0 : 2], ['sound', 2.5], ['sing', id === 'banshee' ? 4 : 0.7]]);
     if (kind === 'sound') {
-      const p = PLAYER.eye.clone().addScaledVector(PLAYER.fwd, -rand(1.2, 2.5));
-      pick([SFX.whisper, SFX.breath, SFX.growl]).call(SFX, p);
-      GAME.flickerRoom(PLAYER.room, 1.5); GAME.drain(id === 'yurei' ? 8 : 4); GAME.activity(3);
+      const p = P.eye.clone().addScaledVector(P.fwd, -rand(1.2, 2.5));
+      wfx(pick(['whisper', 'breath', 'growl']), p);
+      GAME.flickerRoom(P.room, 1.5); GAME.drainP(P, id === 'yurei' ? 8 : 4); GAME.activity(3);
       return;
     }
-    // find a spot in view of the player
+    // find a spot in view of the chosen player
     let spot = null;
     for (let i = 0; i < 24 && !spot; i++) {
-      const a = PLAYER.yaw + rand(-0.9, 0.9), d = rand(2.4, 5.2);
-      const x = PLAYER.pos.x - Math.sin(a) * d, z = PLAYER.pos.z - Math.cos(a) * d;
-      const y = PLAYER.feetY;
+      const a = P.yaw + rand(-0.9, 0.9), d = rand(2.4, 5.2);
+      const x = P.pos.x - Math.sin(a) * d, z = P.pos.z - Math.cos(a) * d;
+      const y = P.feetY;
       const r = roomAt(x, y + 0.5, z);
       if (!r || !r.house) continue;
-      const P = V3(x, y, z);
+      const Q = V3(x, y, z);
       const probe = V3(x, y, z); collideCircle(probe, 0.25, y);
-      if (probe.distanceTo(P) > 0.01) continue;
-      if (los(V3(x, y + 1.5, z), PLAYER.eye)) spot = P;
+      if (probe.distanceTo(Q) > 0.01) continue;
+      if (los(V3(x, y + 1.5, z), P.eye)) spot = Q;
     }
-    if (!spot) { SFX.whisper(this.pos.clone().setY(this.pos.y + 1.5)); return; }
+    if (!spot) { wfx('whisper', this.pos.clone().setY(this.pos.y + 1.5)); return; }
     this.path = [];
     this.pos.copy(spot);
-    this.yaw = Math.atan2(PLAYER.pos.x - spot.x, PLAYER.pos.z - spot.z);
-    this.event = { type: kind, t: kind === 'chase' ? rand(3, 4.5) : rand(2.2, 3.8), seen: false, touched: false };
+    this.yaw = Math.atan2(P.pos.x - spot.x, P.pos.z - spot.z);
+    this.event = { type: kind, t: kind === 'chase' ? rand(3, 4.5) : rand(2.2, 3.8), seen: new Set(), touched: false, target: P, serial: ++this.eventSerial };
     GAME.flickerRoom(roomAt(spot.x, spot.y + 0.5, spot.z), this.event.t);
     if (kind === 'airball') {
       this.event.ball = makeAirball(V3(spot.x, spot.y + 1.4, spot.z));
-      SFX.breath(spot);
+      wfx('breath', spot);
     } else {
       this.show(true); this.glow(0.55);
-      if (kind === 'sing') SFX.sing(this.eye(V3())); else if (chance(0.5)) SFX.growl(this.eye(V3())); else SFX.whisper(this.eye(V3()));
+      wfx(kind === 'sing' ? 'sing' : chance(0.5) ? 'growl' : 'whisper', this.eye(V3()));
     }
     GAME.activity(5);
   }
   updateEvent(dt) {
     const e = this.event; e.t -= dt;
+    const P = e.target;
     GAME.addEMF(this.pos.clone().setY(this.pos.y + 0.8), GAME.emfLevel(4), 0.3);
-    if (e.type === 'chase' && !e.touched) {
+    if (e.type === 'chase' && !e.touched && !P.dead) {
       this.speed = 1.6;
-      this.path = [PLAYER.pos.clone().setY(PLAYER.feetY)]; this.step(dt, 1.6);
-      if (this.pos.distanceTo(PLAYER.pos) < 0.7) { e.touched = true; e.t = 0; GAME.drain(this.id === 'yurei' ? 20 : 15); SFX.scream(); }
+      this.path = [P.pos.clone()]; this.step(dt, 1.6);
+      if (this.pos.distanceTo(P.pos) < 0.7) { e.touched = true; e.t = 0; GAME.drainP(P, this.id === 'yurei' ? 20 : 15); GAME.scare(P); }
     } else this.speed = 0;
     if (e.type === 'airball') {
-      const b = e.ball; _v1.subVectors(PLAYER.eye, b.position); const d = _v1.length();
+      const b = e.ball; _v1.subVectors(P.eye, b.position); const d = _v1.length();
       b.position.addScaledVector(_v1.normalize(), Math.min(d, dt * 1.3)); b.material.opacity = 0.35 + Math.sin(GAME.time * 8) * 0.1;
-      if (d < 0.6 && !e.touched) { e.touched = true; e.t = Math.min(e.t, 0.3); GAME.drain(10); }
-      if (!e.seen && GAME.playerSees(b.position)) { e.seen = true; GAME.witness(); }
-    } else if (!e.seen && GAME.playerSees(this.eye(V3()), 0.9)) {
-      e.seen = true; GAME.witness();
-      GAME.drain(this.id === 'phantom' ? 20 : this.id === 'yurei' ? 15 : 10);
+      if (d < 0.6 && !e.touched) { e.touched = true; e.t = Math.min(e.t, 0.3); GAME.drainP(P, 10); }
+      if (!e.seen.has(PLAYER.pid) && !PLAYER.dead && GAME.playerSees(b.position)) { e.seen.add(PLAYER.pid); GAME.witness(); }
+    } else if (!e.seen.has(PLAYER.pid) && !PLAYER.dead && GAME.playerSees(this.eye(V3()), 0.9)) {
+      e.seen.add(PLAYER.pid); GAME.sawEvent(PLAYER);
     }
     if (this.visible && this.id !== 'oni' && chance(dt * 3)) { this.m.root.visible = false; setTimeout(() => { if (this.event) this.m.root.visible = true; }, rand(60, 160)); }
     if (e.t <= 0) this.endEvent();
+  }
+  // a teammate saw this event on their screen
+  remoteSaw(rp, serial) {
+    const e = this.event;
+    if (!e || e.serial !== serial || e.seen.has(rp.pid)) return;
+    e.seen.add(rp.pid);
+    if (e.type === 'airball') GAME.witness(); else GAME.sawEvent(rp);
   }
   endEvent() {
     if (this.event && this.event.ball) { this.scene.remove(this.event.ball); }
@@ -2470,7 +2546,6 @@ class Ghost {
       this.dotsT -= dt;
       const s = DOTS.covers(V3(this.pos.x, this.pos.y + 1, this.pos.z));
       this.dots.root.visible = this.dotsT > 0 && !!s && !this.hunt && !this.event;
-      if (this.dots.root.visible && !this.dotsSeen && GAME.playerSees(V3(this.pos.x, this.pos.y + 1.2, this.pos.z))) this.dotsSeen = true;
       if (this.dotsT <= 0) this.dots.root.visible = false;
       return;
     }
@@ -2479,7 +2554,7 @@ class Ghost {
     if (this.nextDots <= 0) {
       this.nextDots = rand(9, 20);
       if (DOTS.covers(V3(this.pos.x, this.pos.y + 1, this.pos.z)) || [...DOTS.sets.values()].some((s) => s.room === this.room)) {
-        this.dotsT = rand(1.6, 2.6); this.dotsSeen = false;
+        this.dotsT = rand(1.6, 2.6);
         const s = [...DOTS.sets.values()].find((x) => x.room === this.room);
         if (s) { const a = rand(-0.5, 0.5); this.path = [V3(s.origin.x + (s.fwd.x * Math.cos(a) - s.fwd.z * Math.sin(a)) * rand(1.5, 3), this.pos.y, s.origin.z + (s.fwd.z * Math.cos(a) + s.fwd.x * Math.sin(a)) * rand(1.5, 3))]; }
       }
@@ -2489,12 +2564,12 @@ class Ghost {
     if (this.id === 'wraith' || this.hunt) return;
     for (const s of SALT) {
       if (s.stepped || Math.abs(s.pos.y - this.pos.y) > 1 || Math.hypot(s.pos.x - this.pos.x, s.pos.z - this.pos.z) > 0.45) continue;
-      s.stepped = true; s.mesh.scale.y = 0.25; SFX.salt(s.pos);
+      s.stepped = true; s.mesh.scale.y = 0.25; wfx('salt', s.pos);
       const dir = V3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
       for (let i = 1; i <= 3; i++) {
         const p = s.pos.clone().addScaledVector(dir, i * 0.42); const side = i % 2 ? 0.1 : -0.1;
         p.x += dir.z * side; p.z -= dir.x * side;
-        addPrint('foot', WORLD.scene, p.x, p.y + 0.012, p.z, this.yaw + Math.PI, -Math.PI / 2, 0.3);
+        printAt('foot', { k: 'floor', x: p.x, y: p.y + 0.012, z: p.z, ry: this.yaw + Math.PI });
       }
       GAME.objective('salt');
     }
@@ -2503,8 +2578,8 @@ class Ghost {
   startHunt() {
     this.endEvent && this.event && this.endEvent();
     this.dots.root.visible = false; this.dotsT = 0;
-    this.hunt = { t: DIFFS[GAME.diff].hunt + (this.id === 'demon' ? 5 : 0), grace: 3.2, blink: 0, vis: true, step: 0, shape: rand(3, 6), twin: chance(0.5) };
-    this.losTime = 0; this.knowsHidden = false; this.target = null; this.path = [];
+    this.hunt = { t: DIFFS[GAME.diff].hunt + (this.id === 'demon' ? 5 : 0), grace: 3.2, blink: 0, vis: true, step: 0, shape: rand(3, 6), twin: chance(0.5), kill: null };
+    this.losTime = 0; this.target = null; this.path = []; this.lastSeenAt = new Map(); this.knows = new Set();
     this.show(true); this.glow(1);
     GAME.onHuntStart(this);
   }
@@ -2518,7 +2593,7 @@ class Ghost {
       case 'thaye': return Math.max(1.0, 2.75 - this.thayeAge * 0.175);
       case 'hantu': { const t = this.room ? this.room.tempNow : 15; return t <= 0 ? 2.7 : t <= 3 ? 2.4 : t <= 6 ? 2.0 : t <= 9 ? 1.75 : t <= 12 ? 1.6 : 1.4; }
       case 'jinn': if (GAME.breaker && canSee && dist > 3) return 2.5; break;
-      case 'moroi': base = 1.5 + (1 - GAME.sanity / 100) * 1.25; break;
+      case 'moroi': base = 1.5 + (1 - PL.avgSanity() / 100) * 1.25; break;
       case 'twins': base = this.hunt.twin ? 1.9 : 1.53; break;
       case 'raiju': if (GAME.electronicsNear(this.pos, 6)) return 2.5; break;
     }
@@ -2526,6 +2601,15 @@ class Ghost {
   }
   updateHunt(dt) {
     const h = this.hunt, id = this.id;
+    // after a kill the ghost stays with its victim for a moment, then the hunt ends
+    if (h.kill) {
+      const v = h.kill.p; h.kill.t -= dt;
+      this.pos.set(v.pos.x - Math.sin(v.yaw) * 0.55, v.pos.y, v.pos.z - Math.cos(v.yaw) * 0.55);
+      this.yaw = Math.atan2(v.pos.x - this.pos.x, v.pos.z - this.pos.z); this.speed = 0;
+      this.m.root.visible = Math.random() > 0.12;
+      if (h.kill.t <= 0) this.endHunt();
+      return;
+    }
     h.t -= dt; h.grace -= dt;
     // blinking visibility
     h.blink -= dt;
@@ -2536,25 +2620,29 @@ class Ghost {
       h.blink = h.vis ? visT : invT;
       this.m.root.visible = h.vis && this.blind <= 0;
     }
-    if (id === 'obake') { h.shape -= dt; if (h.shape <= 0) { h.shape = rand(3, 6); const s = this.m.body.scale.x; this.m.body.scale.setScalar(s === this.m.scale ? this.m.scale * 0.72 : this.m.scale); } }
-    // perception
-    const pEye = PLAYER.eye, gEye = this.eye(V3());
-    const dist = Math.hypot(PLAYER.pos.x - this.pos.x, PLAYER.pos.z - this.pos.z), dy = Math.abs(PLAYER.feetY - this.pos.y);
-    const hidden = PLAYER.hidden;
-    const canSee = this.blind <= 0 && PLAYER.inHouse && !hidden && dist < 16 && dy < 1.6 && los(gEye, pEye);
-    const elecR = id === 'raiju' ? 12 : 7.5;
-    const voiceR = id === 'yokai' ? 2.5 : 9;
-    const sensed = this.blind <= 0 && PLAYER.inHouse && dy < 2.5 && ((PLAYER.electronicsOn() && dist < elecR) || (GAME.time - PLAYER.talkT < 1.5 && dist < voiceR) || id === 'deogen');
-    if (canSee) { this.losTime += dt; this.lastSeen = GAME.time; this.knowsHidden = false; this.target = PLAYER.pos.clone().setY(PLAYER.feetY); }
-    else {
-      this.losTime = Math.max(0, this.losTime - dt * 0.5);
-      if (sensed) { this.target = PLAYER.pos.clone().setY(PLAYER.feetY); if (hidden) this.knowsHidden = true; }
-      if (hidden && GAME.time - this.lastSeen < 1.2) this.knowsHidden = true;
+    if (id === 'obake') { h.shape -= dt; if (h.shape <= 0) { h.shape = rand(3, 6); const sc = this.m.body.scale.x; this.m.body.scale.setScalar(sc === this.m.scale ? this.m.scale * 0.72 : this.m.scale); } }
+    // perception: the ghost chases whoever it sees, otherwise whoever it senses
+    const gEye = this.eye(V3());
+    const elecR = id === 'raiju' ? 12 : 7.5, voiceR = id === 'yokai' ? 2.5 : 9;
+    let seen = null, seenD = 1e9, sensed = null, sensedD = 1e9;
+    for (const p of PL.inHouse()) {
+      const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z), dy = Math.abs(p.feetY - this.pos.y);
+      const can = this.blind <= 0 && !p.hidden && d < 16 && dy < 1.6 && los(gEye, p.eye);
+      const sn = this.blind <= 0 && dy < 2.5 && ((p.electronicsOn() && d < elecR) || (GAME.time - p.talkT < 1.5 && d < voiceR) || id === 'deogen');
+      if (can) { this.lastSeenAt.set(p.pid, GAME.time); if (d < seenD) { seen = p; seenD = d; } }
+      if (!p.hidden) this.knows.delete(p.pid);
+      else if (sn || GAME.time - (this.lastSeenAt.get(p.pid) ?? -99) < 1.2) this.knows.add(p.pid);
+      if (sn && d < sensedD) { sensed = p; sensedD = d; }
     }
+    const canSee = !!seen;
+    if (canSee) { this.losTime += dt; this.target = seen.pos.clone(); }
+    else { this.losTime = Math.max(0, this.losTime - dt * 0.5); if (sensed) this.target = sensed.pos.clone(); }
+    const focus = seen || sensed;
+    const dist = focus ? Math.min(seenD, sensedD) : 99;
     const speed = this.blind > 0 ? 1.0 : this.speedNow(canSee, dist);
     this.speed = h.grace > 1.2 ? 0 : speed;
     if (this.speed > 0) {
-      if (canSee && dy < 0.5) { this.path = [this.target]; }
+      if (canSee && Math.abs(seen.feetY - this.pos.y) < 0.5) { this.path = [this.target]; }
       else {
         this.repath -= dt;
         if (this.repath <= 0 || !this.path.length) {
@@ -2565,26 +2653,26 @@ class Ghost {
       }
       const done = this.step(dt, this.speed);
       if (done && this.target && this.target.distanceTo(this.pos) < 0.5) this.target = null;
-      // footsteps
-      h.step -= dt;
-      if (h.step <= 0) {
-        h.step = 0.62 / Math.max(0.6, this.speed / 1.7);
-        const range = id === 'myling' ? 12 : 20;
-        if (this.pos.distanceTo(PLAYER.pos) < range) SFX.ghostStep(this.pos.clone().setY(this.pos.y + 0.1), id === 'myling' ? 0.5 : 1);
-      }
     }
-    // kill
-    if (h.grace <= 0 && this.blind <= 0 && dy < 1.0 && dist < 0.75) {
-      if (!hidden) { GAME.die(this); return; }
-      if (this.knowsHidden) { const cl = PLAYER.closet; if (cl) cl.door.set(1, 6); GAME.die(this); return; }
+    huntSteps(this, dt);
+    // kill anyone within reach who isn't safely hidden
+    if (h.grace <= 0 && this.blind <= 0) {
+      for (const p of PL.inHouse()) {
+        if (Math.abs(p.feetY - this.pos.y) >= 1.0 || Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) >= 0.75) continue;
+        if (p.hidden && !this.knows.has(p.pid)) continue;
+        if (p.hidden && p.closet) p.closet.door.set(1, 6);
+        GAME.kill(p, this);
+        return;
+      }
     }
     // hantu freezing breath
     if (id === 'hantu' && !GAME.breaker && this.m.root.visible && chance(dt * 2)) PARTICLES.puff(V3(this.pos.x, this.pos.y + 1.55 * this.m.scale, this.pos.z), 'breath');
     if (h.t <= 0) this.endHunt();
   }
   pickHuntRoam() {
-    // drift toward the player's area now and then (ghosts roam during hunts)
-    if (chance(0.45) && PLAYER.inHouse) { const n = nearestNav(PLAYER.pos.clone().setY(PLAYER.feetY), false); const nb = pick(n.edges.concat([n])); return nb.p.clone(); }
+    // drift toward someone's area now and then (ghosts roam during hunts)
+    const ins = PL.inHouse();
+    if (chance(0.45) && ins.length) { const P = pick(ins); const n = nearestNav(P.pos.clone(), false); const nb = pick(n.edges.concat([n])); return nb.p.clone(); }
     return pick(NAV.filter((n) => n.room && n.room.house)).p.clone();
   }
   endHunt() {
@@ -2594,14 +2682,23 @@ class Ghost {
     this.goTo(this.pickWanderTarget());
     GAME.onHuntEnd(this);
   }
-  smudged(pos) {
-    if (this.hunt) { if (pos.distanceTo(this.pos) < 6) { this.blind = this.id === 'moroi' ? 12 : 6; this.target = null; this.path = []; this.m.root.visible = false; } return; }
-    if (pos.distanceTo(this.pos) < 6 || PLAYER.room === this.home && this.room === this.home) {
+  smudged(pos, room) {
+    if (this.hunt) { if (!this.hunt.kill && pos.distanceTo(this.pos) < 6) { this.blind = this.id === 'moroi' ? 12 : 6; this.target = null; this.path = []; this.m.root.visible = false; } return; }
+    if (pos.distanceTo(this.pos) < 6 || (room === this.home && this.room === this.home)) {
       this.block = this.id === 'spirit' ? 180 : this.id === 'demon' ? 60 : 90;
       if (this.id === 'yurei') { this.path = []; this.goTo((pick(navRooms(this.home)) || NAV[0]).p.clone()); }
       GAME.objective('smudge');
     }
   }
+}
+// hunting footsteps are generated on every machine from the ghost's speed
+function huntSteps(g, dt) {
+  if (!g.hunt || g.speed <= 0.05) return;
+  g._step = (g._step || 0) - dt;
+  if (g._step > 0) return;
+  g._step = 0.62 / Math.max(0.6, g.speed / 1.7);
+  const myling = g.type && g.type.id === 'myling';
+  if (g.pos.distanceTo(PLAYER.pos) < (myling ? 12 : 20)) SFX.ghostStep(g.pos.clone().setY(g.pos.y + 0.1), myling ? 0.5 : 1);
 }
 function throwProp(p) {
   const a = rand(0, Math.PI * 2), sp = rand(1.6, 3.6);
@@ -2625,7 +2722,7 @@ function updateProps(dt) {
     const fl = floorAt(o.x, o.z, prev.y);
     if (o.y <= fl) {
       o.y = fl;
-      if (Math.abs(p.vel.y) > 1.2) SFX.thud(o.clone(), clamp(Math.abs(p.vel.y) / 4, 0.2, 1));
+      if (Math.abs(p.vel.y) > 1.2) wfx('thud', o.clone(), +clamp(Math.abs(p.vel.y) / 4, 0.2, 1).toFixed(2));
       p.vel.y *= -0.3; p.vel.x *= 0.55; p.vel.z *= 0.55; p.spin.multiplyScalar(0.5);
     }
     if (p.vel.lengthSq() < 0.05 && (o.y <= fl + 0.001 || Math.abs(p.vel.y) < 0.2)) { p.moving = false; m.rotation.x = Math.round(m.rotation.x / Math.PI) * Math.PI; m.rotation.z = Math.round(m.rotation.z / Math.PI) * Math.PI; }
@@ -2674,6 +2771,7 @@ const PLAYER = {
   pos: V3(), vel: V3(), yaw: 0, pitch: 0, eye: V3(), fwd: V3(0, 0, -1), eyeH: 1.6, stamina: 1, exhausted: false,
   inv: [null, null, null], sel: 0, hand: new THREE.Group(), flash: null, flashOn: false,
   room: null, inHouse: false, hidden: false, closet: null, talkT: -99, bob: 0, stepT: 0, dead: false, moving: false,
+  pid: 0, sanity: 100, dying: false, spectating: false, survive: false, crouch: false,
   get feetY() { return this.pos.y; },
   held() { return this.inv[this.sel]; },
   electronicsOn() { const h = this.held(); return this.flashOn || !!(h && h.active); },
@@ -2693,10 +2791,10 @@ const INPUT = { locked: false, talkOpen: false, lockedAt: 0 };
 
 function playerUpdate(dt) {
   const P = PLAYER;
-  if (P.dead) return;
+  if (P.dying) return;
   const f = (KEYS.KeyW || KEYS.ArrowUp ? 1 : 0) - (KEYS.KeyS || KEYS.ArrowDown ? 1 : 0);
   const s = (KEYS.KeyD || KEYS.ArrowRight ? 1 : 0) - (KEYS.KeyA || KEYS.ArrowLeft ? 1 : 0);
-  const crouch = !!KEYS.KeyC;
+  const crouch = P.crouch = !!KEYS.KeyC;
   const wantSprint = (KEYS.ShiftLeft || KEYS.ShiftRight) && (f || s) && !crouch;
   let speed = crouch ? 0.95 : 1.6;
   if (wantSprint && !P.exhausted && P.stamina > 0) { speed = 3.0; P.stamina -= dt / 3; if (P.stamina <= 0) { P.stamina = 0; P.exhausted = true; } }
@@ -2724,7 +2822,7 @@ function playerUpdate(dt) {
   P.eye.copy(camera.position);
   camera.getWorldDirection(P.fwd);
   // footsteps
-  if (P.moving) {
+  if (P.moving && !P.dead) {
     P.stepT -= dt * hs;
     if (P.stepT <= 0) {
       P.stepT = 0.72;
@@ -2839,15 +2937,23 @@ function pickUpItem(it) {
 function interactPressed() {
   const t = PLAYER.dead ? null : updateAim();
   if (!t || PLAYER.dead) return;
-  if (t.kind === 'item') { pickUpItem(t.item); return; }
+  const guest = NET.role === 'client';
+  if (t.kind === 'item') {
+    if (guest) { if (freeSlot() < 0) HUD.toast('Inventory full — press G to drop something'); else NET.action({ k: 'pick', id: t.item.id }); return; }
+    pickUpItem(t.item); return;
+  }
   if (t.kind === 'rack') {
-    const it = t.slot.items[t.slot.items.length - 1];
     if (freeSlot() < 0) { HUD.toast('Inventory full'); return; }
+    if (guest) { NET.action({ k: 'take', slot: VAN.rackSlots.indexOf(t.slot) }); return; }
+    const it = t.slot.items[t.slot.items.length - 1];
     t.slot.items.pop(); GAME.refreshRack();
     pickUpItem(it);
     return;
   }
-  if (t.kind === 'bone') { GAME.boneFound = true; GAME.bone.visible = false; SFX.pickup(); HUD.toast('You found the bone!'); return; }
+  if (t.kind === 'bone') {
+    if (guest) NET.action({ k: 'bone' }); else { GAME.boneFound = true; GAME.bone.visible = false; }
+    SFX.pickup(); HUD.toast('You found the bone!'); return;
+  }
   t.use && t.use();
 }
 function selectSlot(i) {
@@ -2862,14 +2968,17 @@ function dropHeld() {
   updateAim();
   const rh = PLAYER.room && PLAYER.room.id === 'van' ? raycast(camera.position, PLAYER.fwd, 2.4) : null;
   if ((AIM.target && AIM.target.kind === 'rack') || (rh && rh.c.rack)) {
+    PLAYER.inv[PLAYER.sel] = null;
+    if (NET.role === 'client') { NET.action({ k: 'rack', id: it.id }); removeItem(it); HUD.inv(); SFX.pickup(); return; }
     it.mesh.parent && it.mesh.parent.remove(it.mesh); it.where = 'rack';
     if (it.type === 'dots') DOTS.clear(it);
     if (it.def.toggle && it.on) it.setOn(false, false);
-    PLAYER.inv[PLAYER.sel] = null; GAME.returnToRack(it); HUD.inv(); SFX.pickup(); return;
+    GAME.returnToRack(it); HUD.inv(); SFX.pickup(); return;
   }
   const spot = placementSpot();
   PLAYER.inv[PLAYER.sel] = null;
   placeInWorld(it, spot, PLAYER.yaw);
+  if (NET.role === 'client') { it.pendingT = GAME.time + 2; NET.action({ k: 'drop', id: it.id, x: r2(spot.x), y: r2(spot.y), z: r2(spot.z), ry: r2(PLAYER.yaw), s: it.netState() }); }
   SFX.drop(spot); HUD.inv();
 }
 function placementSpot() {
@@ -2891,22 +3000,28 @@ function useHeld() {
     case 'salt': {
       const spot = placementSpot();
       if (Math.abs(spot.y - PLAYER.pos.y) > 1.2) return;
-      const m = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.05, 7), M.white); m.position.copy(spot).setY(spot.y + 0.025); m.castShadow = false; WORLD.scene.add(m);
-      SALT.push({ pos: spot.clone(), mesh: m, stepped: false, room: roomAt(spot.x, spot.y + 0.3, spot.z) });
-      SFX.salt(spot); it.uses--; GAME.used('salt');
+      SFX.salt(spot); it.uses--;
+      if (NET.role === 'client') NET.action({ k: 'salt', id: it.id, u: it.uses, x: r2(spot.x), y: r2(spot.y), z: r2(spot.z) });
+      else {
+        const m = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.05, 7), M.white); m.position.copy(spot).setY(spot.y + 0.025); m.castShadow = false; WORLD.scene.add(m);
+        SALT.push({ pos: spot.clone(), mesh: m, stepped: false, room: roomAt(spot.x, spot.y + 0.3, spot.z) });
+        GAME.used('salt');
+      }
       if (it.uses <= 0) { PLAYER.inv[PLAYER.sel] = null; removeItem(it); HUD.toast('Salt used up'); }
       HUD.inv(); return;
     }
     case 'crucifix': case 'book': dropHeld(); return;
     case 'pills': {
-      GAME.sanity = Math.min(100, GAME.sanity + DIFFS[GAME.diff].pills); SFX.pills();
-      PLAYER.inv[PLAYER.sel] = null; removeItem(it); GAME.used('pills'); HUD.inv(); HUD.toast('Sanity restored'); return;
+      if (NET.role === 'client') NET.action({ k: 'pills', id: it.id });
+      else { GAME.sanity = Math.min(100, GAME.sanity + DIFFS[GAME.diff].pills); GAME.used('pills'); }
+      SFX.pills(); PLAYER.inv[PLAYER.sel] = null; removeItem(it); HUD.inv(); HUD.toast('Sanity restored'); return;
     }
     case 'smudge': {
       if (it.lit) return;
-      it.lit = true; it.burn = 10; it.parts.tip.color.set(0xff7a22); SFX.ignite(it.worldPos(V3()));
-      GAME.ghost && GAME.ghost.smudged(it.worldPos(V3()));
-      GAME.used('smudge');
+      it.lit = true; it.burn = 10; it.parts.tip.color.set(0xff7a22);
+      const sp = it.worldPos(V3()); SFX.ignite(sp);
+      if (NET.role === 'client') NET.action({ k: 'smudge', id: it.id, x: r2(sp.x), y: r2(sp.y), z: r2(sp.z) });
+      else { GAME.ghost && GAME.ghost.smudged(sp, roomAt(sp.x, sp.y, sp.z)); GAME.used('smudge'); }
       return;
     }
     default: if (it.def.toggle) { it.setOn(!it.on); HUD.inv(); }
@@ -2914,17 +3029,23 @@ function useHeld() {
 }
 function toggleAimedItem() {
   const t = updateAim();
-  if (t && t.kind === 'item' && t.item.def.toggle) { t.item.setOn(!t.item.on); return true; }
+  if (t && t.kind === 'item' && t.item.def.toggle) {
+    if (NET.role === 'client') NET.action({ k: 'toggle', id: t.item.id }); else t.item.setOn(!t.item.on);
+    return true;
+  }
   return false;
 }
 
 // ---------------------------------------------------------------- GAME ------
 const GAME = {
-  active: false, diff: 'amateur', time: 0, setupLeft: 0, sanity: 100, breaker: true, ghost: null, hunt: null,
+  active: false, diff: 'amateur', time: 0, setupLeft: 0, breaker: true, ghost: null, hunt: null, players: 1,
   marks: {}, guess: null, photos: [], obj: [], emf: [], flicker: new Map(), act: new Array(60).fill(0), actCur: 0, actT: 0,
-  lastTalkNear: -99, bone: null, boneFound: false, cursed: 0, camIdx: 0, hiddenEv: null, consumed: {}, survivedHunt: false,
-  boardDirty: true, screensT: 0, pendingPhoto: null, frame: 0, endT: 0, ending: false, deathT: 0,
-  has(ev) { const g = this.ghost; if (!g) return false; return g.type.ev.includes(ev) && ev !== this.hiddenEv; },
+  lastTalkNear: -99, bone: null, boneFound: false, cursed: 0, camIdx: 0, hiddenEv: null, consumed: {},
+  boardDirty: true, screensT: 0, pendingPhoto: null, frame: 0, ending: false, deathT: 0, orbRoom: null, sawSerials: new Set(), lastKillT: -99,
+  // the local player's sanity (every player has their own; the host tracks all of them)
+  get sanity() { return PLAYER.sanity; },
+  set sanity(v) { PLAYER.sanity = v; },
+  has(ev) { const g = this.ghost; if (!g || !g.type || !g.type.ev) return false; return g.type.ev.includes(ev) && ev !== this.hiddenEv; },
   emfLevel(l) { return this.has('emf') && chance(0.25) ? 5 : l; },
   addEMF(pos, level, life = 20) {
     for (const s of this.emf) if (s.level === level && s.pos.distanceToSquared(pos) < 0.25) { s.pos.copy(pos); s.life = Math.max(s.life, life); return; }
@@ -2933,18 +3054,21 @@ const GAME = {
   emfAt(p) { let l = 1; for (const s of this.emf) if (Math.abs(s.pos.y - p.y) < 1.6 && Math.hypot(s.pos.x - p.x, s.pos.z - p.z) < 1.8) l = Math.max(l, s.level); return l; },
   disturbAt(p) {
     const g = this.ghost; if (!g) return 0;
-    if (g.hunt && g.hunt.grace < 3) { const r = g.id === 'raiju' ? 15 : 10, d = g.pos.distanceTo(p); return d < r ? 1 - d / r : 0; }
+    if (g.hunt && (g.hunt.grace ?? 0) < 3) { const r = g.id === 'raiju' ? 15 : 10, d = g.pos.distanceTo(p); return d < r ? 1 - d / r : 0; }
     if (g.event && g.visible) { const d = g.pos.distanceTo(p); return d < 6 ? 0.5 : 0; }
     return 0;
   },
   electronicsNear(p, r) {
-    if (PLAYER.electronicsOn() && PLAYER.pos.distanceTo(p) < r) return true;
+    if (PL.alive().some((pl) => pl.electronicsOn() && pl.pos.distanceTo(p) < r)) return true;
     return ITEM_LIST.some((it) => it.where === 'world' && it.active && it.type !== 'photo' && it.mesh.position.distanceTo(p) < r);
   },
-  activityMul() { return (1 + (1 - this.sanity / 100) * 0.9) * (this.setupLeft > 0 ? 0.6 : 1) * (this.diff === 'amateur' ? 0.9 : this.diff === 'intermediate' ? 1 : 1.1); },
+  activityMul() { return (1 + (1 - PL.avgSanity() / 100) * 0.9) * (this.setupLeft > 0 ? 0.6 : 1) * (this.diff === 'amateur' ? 0.9 : this.diff === 'intermediate' ? 1 : 1.1); },
   activity(v) { this.actCur += v; },
-  drain(v) { this.sanity = Math.max(0, this.sanity - v); },
+  drainP(p, v) { p.sanity = Math.max(0, p.sanity - v); },
+  drain(v) { this.drainP(PLAYER, v); },
   witness() { this.objective('event'); },
+  sawEvent(p) { this.witness(); this.drainP(p, this.ghost.id === 'phantom' ? 20 : this.ghost.id === 'yurei' ? 15 : 10); },
+  scare(p) { if (p === PLAYER) SFX.scream(); else NET.sendTo(p.pid, { t: 'scream' }); },
   playerSees(p, minDot = 0.75) {
     _v2.subVectors(p, PLAYER.eye); const d = _v2.length(); if (d > 18) return false;
     if (_v2.dot(PLAYER.fwd) / d < minDot) return false;
@@ -2953,54 +3077,83 @@ const GAME = {
   used(type) { this.consumed[type] = (this.consumed[type] || 0) + 1; },
   objective(id) {
     const o = this.obj.find((x) => x.id === id);
-    if (o && !o.done) { o.done = true; this.boardDirty = true; HUD.toast('Objective complete: ' + OBJECTIVES[id].text); }
+    if (!o || o.done) return;
+    // guests report what they saw; the host keeps the shared list (and tells everyone)
+    if (NET.role === 'client') { if (!o.asked) { o.asked = true; NET.action({ k: 'obj', id }); } return; }
+    o.done = true; this.boardDirty = true; HUD.toast('Objective complete: ' + OBJECTIVES[id].text);
   },
-  setBreaker(on, byGhost = false) {
+  applyBreaker(on) {
     this.breaker = on;
-    if (WORLD.fuse) { WORLD.fuse.lever.rotation.x = on ? -0.5 : 0.5; WORLD.fuse.lamp.color.set(on ? 0x30ff40 : 0xff2020); SFX.breaker(WORLD.fuse.pos, on); }
+    if (WORLD.fuse) { WORLD.fuse.lever.rotation.x = on ? -0.5 : 0.5; WORLD.fuse.lamp.color.set(on ? 0x30ff40 : 0xff2020); }
+  },
+  setBreaker(on, sound = true) {
+    this.applyBreaker(on);
+    if (sound && WORLD.fuse) wfx('breaker', WORLD.fuse.pos, on);
   },
   flickerRoom(room, t) { if (room) this.flicker.set(room, Math.max(this.flicker.get(room) || 0, t)); },
-  onPlayerLight(room) {
+  onPlayerLight(room, who = PLAYER) {
     const g = this.ghost;
     if (!g) return;
-    if (room.switchOn && !this.breaker) HUD.toast('The power is off — find the fuse box');
+    if (room.switchOn && !this.breaker) NET.toastTo(who, 'The power is off — find the fuse box');
     if (g.id === 'mare' && room.switchOn && g.room === room && chance(0.6)) setTimeout(() => { if (room.switchOn && this.active) { const s = room.switches[0]; s && s.toggle(false); this.addEMF(s.pos.clone(), this.emfLevel(2)); } }, rand(2000, 5000));
     const on = ROOMS.filter((r) => r.switchOn && r.house).length;
-    if (this.breaker && on > 7) { this.setBreaker(false); HUD.toast('Too many lights on — the breaker tripped!'); }
+    if (this.breaker && on > 7) { this.setBreaker(false); NET.toastAll('Too many lights on — the breaker tripped!'); }
+  },
+  toggleVanDoors() {
+    if (NET.role === 'client') { NET.action({ k: 'vandoor' }); return; }
+    VAN.doors.set(!VAN.doors.open);
   },
   onHuntStart(g) {
-    this.hunt = g; this.survivedHunt = PLAYER.inHouse;
+    this.hunt = g;
+    if (PLAYER.inHouse && !PLAYER.dead && g.pos.distanceTo(PLAYER.pos) < 18) SFX.sting();
+    for (const p of PL.all()) p.survive = !p.dead && p.inHouse;
     const fd = WORLD.frontDoor; fd.set(0, 6, fd.angle > 0.05); fd.locked = true;
-    AudioSys.setLoop(AudioSys.drone, 0.32, 3);
-    if (PLAYER.inHouse && g.pos.distanceTo(PLAYER.pos) < 18) SFX.sting();
   },
-  onHuntEnd(g) {
+  onHuntEnd() {
     this.hunt = null; WORLD.frontDoor.locked = false;
-    AudioSys.setLoop(AudioSys.drone, 0, 2);
-    if (!PLAYER.dead && this.survivedHunt) this.objective('escape');
+    if (PL.all().some((p) => p.survive && !p.dead)) this.objective('escape');
     for (const r of ROOMS) r.flicker = 1;
   },
+  // the ghost caught someone: they die, drop their gear and (in co-op) become a spectator
+  kill(p, g) {
+    if (p.dead) return;
+    p.dead = true; this.lastKillT = this.time;
+    g.hunt.kill = { p, t: 2.6 }; g.show(true); g.glow(1);
+    dropGearOf(p);
+    if (p === PLAYER) this.localDeath(g);
+    else NET.sendTo(p.pid, { t: 'die' });
+  },
   // ---------------- contract lifecycle ----------------
-  start(diff) {
-    this.diff = diff; const D = DIFFS[diff];
-    this.time = 0; this.setupLeft = D.setup; this.sanity = 100; this.marks = {}; this.guess = null; this.photos = []; this.emf = [];
+  resetWorld() {
+    this.time = 0; this.marks = {}; this.guess = null; this.photos = []; this.emf = [];
     this.flicker.clear(); this.act.fill(0); this.actCur = 0; this.lastTalkNear = -99; this.cursed = 0; this.camIdx = 0; this.consumed = {};
     this.hunt = null; this.ending = false; this.deathT = 0; this.boneFound = false; this.pendingPhoto = null; this.boardDirty = true;
-    // reset the house
+    this.orbRoom = null; this.sawSerials = new Set(); this.leaveWarned = false; this.lastKillT = -99;
     for (const d of WORLD.doors) { d.locked = false; d.angle = d.target = 0; d.closing = d.slamming = false; d.pivot.rotation.y = d.rot(); d.col.off = false; for (const p of d.prints) p.life = 0; d.prints = []; }
     { const fd = WORLD.frontDoor; fd.angle = fd.target = 1; fd.pivot.rotation.y = fd.rot(); fd.col.off = true; } // front door starts open toward the van
+    VAN.doors.snap(false); // van doors start closed
     for (const r of ROOMS) { r.switchOn = false; r.flicker = 1; r.tempNow = r.temp + rand(-1, 1); }
     for (const s of WORLD.switches) s.sync();
-    for (const p of WORLD.props) { p.moving = false; p.mesh.position.copy(p.home); p.vel.set(0, 0, 0); }
+    for (const p of WORLD.props) { p.moving = false; p.mesh.position.copy(p.home); p.vel.set(0, 0, 0); p.net = null; }
     for (const it of [...ITEM_LIST]) removeItem(it);
     for (const p of PRINTS) { p.mesh.parent && p.mesh.parent.remove(p.mesh); p.mat.dispose(); } PRINTS.length = 0;
     for (const s of SALT) WORLD.scene.remove(s.mesh); SALT.length = 0;
     DOTS.clearAll();
     for (const p of PARTICLES.pool) { p.life = 0; p.s.visible = false; }
     if (this.ghost) this.ghost.dispose();
+    for (const s of VAN.rackSlots) { s.type = null; s.items = []; }
+    PLAYER.inv = [null, null, null]; PLAYER.sel = 0; PLAYER.dead = PLAYER.dying = PLAYER.spectating = false; PLAYER.sanity = 100; PLAYER.stamina = 1; PLAYER.exhausted = false;
+    PLAYER.yaw = 0; PLAYER.pitch = -0.05; PLAYER.flashOn = false; PLAYER.vel.set(0, 0, 0); PLAYER.talkT = -99;
+    for (const c of PLAYER.hand.children.slice()) if (!PLAYER.torch || c !== PLAYER.torch.group) PLAYER.hand.remove(c);
+    $('#fx-red').style.opacity = 0;
+  },
+  start(diff) {
+    this.diff = diff; const D = DIFFS[diff];
+    this.resetWorld();
+    this.setupLeft = D.setup;
     // fuse box spawns in the garage or at the bottom of the basement stairs
     placeFuseBox(chance(0.5) ? 'garage' : 'basement');
-    this.setBreaker(D.breaker); 
+    this.setBreaker(D.breaker, false);
     // the ghost
     const qs = new URLSearchParams(location.search), want = qs.has('debug') && qs.get('ghost');
     const g = this.ghost = new Ghost(GHOST_BY_ID[want] ? want : pick(GHOSTS).id, WORLD.scene);
@@ -3010,21 +3163,41 @@ const GAME = {
     const spot = pick(BONE_SPOTS);
     this.bone.position.set(spot[0], spot[1] + 0.03, spot[2]); this.bone.rotation.y = rand(0, 6); this.bone.visible = true;
     // objectives (three, only ones the loadout can complete)
-    const lo = GAME.loadout();
-    const pool = shuffle(Object.keys(OBJECTIVES).filter((k) => !OBJECTIVES[k].needs || lo[OBJECTIVES[k].needs] > 0));
+    const base = this.loadout();
+    const pool = shuffle(Object.keys(OBJECTIVES).filter((k) => !OBJECTIVES[k].needs || base[OBJECTIVES[k].needs] > 0));
     this.obj = pool.slice(0, 3).map((id) => ({ id, done: false }));
-    // van rack
-    for (const s of VAN.rackSlots) { s.type = null; s.items = []; }
+    // van rack: the host's equipment, doubled/tripled/quadrupled for the team size
+    this.players = clamp(1 + NET.guestCount(), 1, MAX_PLAYERS);
     let i = 0;
-    for (const id of ITEM_ORDER) { const n = lo[id]; if (!n) continue; const s = VAN.rackSlots[i++]; s.type = id; for (let k = 0; k < n; k++) s.items.push(new Item(id)); }
+    for (const id of ITEM_ORDER) { const n = base[id] * this.players; if (!n) continue; const s = VAN.rackSlots[i++]; s.type = id; for (let k = 0; k < n; k++) s.items.push(new Item(id)); }
     this.refreshRack();
-    // the player
-    PLAYER.inv = [null, null, null]; PLAYER.sel = 0; PLAYER.dead = false; PLAYER.stamina = 1; PLAYER.exhausted = false;
-    PLAYER.pos.copy(VAN.spawn); PLAYER.yaw = 0; PLAYER.pitch = -0.05; PLAYER.flashOn = false; PLAYER.vel.set(0, 0, 0); PLAYER.talkT = -99;
-    for (const c of PLAYER.hand.children.slice()) if (!PLAYER.torch || c !== PLAYER.torch.group) PLAYER.hand.remove(c);
+    // players
+    PLAYER.pid = 0; PLAYER.pos.copy(spawnFor(0));
+    REMOTES.forEach((r) => r.dispose()); REMOTES.clear();
     this.active = true;
     AudioSys.setLoop(AudioSys.drone, 0);
-    if (qs.has('debug')) console.info('[debug] ghost:', g.type.name, 'room:', g.home.name);
+    NET.startAll(); NET.lobbyChanged();
+    if (qs.has('debug')) console.info('[debug] ghost:', g.type.name, 'room:', g.home.name, 'players:', this.players);
+  },
+  // a guest starts (or rejoins) the host's contract
+  startClient(info) {
+    this.diff = info.diff;
+    this.resetWorld();
+    this.time = info.time || 0; this.setupLeft = info.setup; this.players = info.players.length;
+    placeFuseBox(info.fuse); this.applyBreaker(info.breaker);
+    this.ghost = Ghost.proxy(info.ghost, WORLD.scene);
+    this.hiddenEv = null;
+    this.bone.position.set(...info.bone); this.bone.visible = !info.boneFound; this.boneFound = !!info.boneFound;
+    this.obj = info.obj.map((id) => ({ id, done: false }));
+    REMOTES.forEach((r) => r.dispose()); REMOTES.clear();
+    for (const p of info.players) if (p.pid !== NET.myPid) REMOTES.set(p.pid, new RemotePlayer(p.pid, p.name));
+    PLAYER.pid = NET.myPid; PLAYER.pos.fromArray(info.spawn); PLAYER.yaw = info.yaw ?? 0;
+    PLAYER.sanity = info.sanity ?? 100;
+    if (info.dead) { PLAYER.dead = true; PLAYER.spectating = true; }
+    VAN.doors.snap(!!info.vanOpen);
+    this.lastRack = null;
+    this.active = true;
+    AudioSys.setLoop(AudioSys.drone, 0);
   },
   loadout() { const o = {}; for (const id of ITEM_ORDER) o[id] = Math.min(SAVE.profile.owned[id] || 0, ITEMS[id].max); return o; },
   refreshRack() {
@@ -3034,6 +3207,7 @@ const GAME = {
       if (!s.type) continue;
       const top = s.items[s.items.length - 1];
       if (top) { WORLD.scene.add(top.mesh); top.where = 'rack'; top.mesh.visible = true; top.mesh.position.copy(s.pos).setY(s.pos.y + (top.type === 'video' ? 0.06 : 0.03)); top.mesh.rotation.set(0, Math.PI / 2, 0); if (top.type === 'video') top.parts.tripod.visible = false; if (top.type === 'book') { top.parts.closed.visible = true; top.parts.open.visible = false; } s.mesh = top.mesh; }
+      for (const it of s.items) if (it !== top) { it.where = 'rack'; it.mesh.parent && it.mesh.parent.remove(it.mesh); }
       if (!s.label) { s.label = makeLabel(); WORLD.scene.add(s.label); }
       drawLabel(s.label, `${ITEMS[s.type].name} ×${s.items.length}`);
       s.label.position.copy(s.pos).setY(s.pos.y + 0.25); s.label.visible = true;
@@ -3042,6 +3216,7 @@ const GAME = {
   returnToRack(it) {
     let s = VAN.rackSlots.find((x) => x.type === it.type);
     if (!s) { s = VAN.rackSlots.find((x) => !x.type); if (!s) { removeItem(it); return; } s.type = it.type; s.items = []; }
+    it.where = 'rack'; it.holder = null;
     s.items.push(it); this.refreshRack();
   },
   cycleCamera() {
@@ -3049,41 +3224,56 @@ const GAME = {
     if (!cams.length) { HUD.toast('No video cameras placed'); return; }
     this.camIdx = (this.camIdx + 1) % cams.length; SFX.toggle(true);
   },
+  // the local player says something (T menu)
   say(k) {
     const ph = PHRASES.find((p) => p.k === k); if (!ph) return;
     PLAYER.talkT = this.time;
     HUD.sub(`You: "${k === 'name' ? this.ghost.first + '?' : ph.text}"`, 2.2);
-    const g = this.ghost; if (!g) return;
-    const d = g.pos.distanceTo(PLAYER.pos);
+    const box = ITEM_LIST.find((it) => it.type === 'spiritbox' && it.on && (it === PLAYER.held() || (it.where === 'world' && it.mesh.position.distanceTo(PLAYER.pos) < 3)));
+    if (box) { box.answerT = 3.5; this.askedBox = box; }
+    const bp = box ? box.worldPos(V3()) : null;
+    if (NET.role === 'client') NET.action({ k: 'say', ph: k, box: bp ? bp.toArray().map((v) => +v.toFixed(2)) : null });
+    else this.sayFrom(PLAYER, k, bp);
+  },
+  // the host decides how the ghost reacts to anyone talking, and answers spirit boxes
+  sayFrom(p, k, boxPos) {
+    p.talkT = this.time;
+    const g = this.ghost; if (!g || !g.type) return;
+    const d = g.pos.distanceTo(p.pos);
     if (d < 5) this.lastTalkNear = this.time;
-    if (k === 'name') { g.nextEvent -= 15; g.nextInteract -= 4; this.activity(4); if (d < 8 && chance(0.25) && !g.hunt && !g.event && PLAYER.inHouse) setTimeout(() => this.active && !g.hunt && !g.event && g.startEvent(), rand(1500, 4000)); }
+    if (k === 'name') { g.nextEvent -= 15; g.nextInteract -= 4; this.activity(4); if (d < 8 && chance(0.25) && !g.hunt && !g.event && p.inHouse) setTimeout(() => this.active && !g.hunt && !g.event && !p.dead && g.startEvent(p), rand(1500, 4000)); }
     else if (k === 'friend') { g.nextEvent += 8; }
     else g.nextInteract -= 2;
-    // spirit box
-    const box = ITEM_LIST.find((it) => it.type === 'spiritbox' && it.on && (it === PLAYER.held() || (it.where === 'world' && it.mesh.position.distanceTo(PLAYER.pos) < 3)));
-    if (!box) return;
-    box.answerT = rand(1.6, 2.6);
+    if (!boxPos) return;
+    const bp = boxPos.isVector3 ? boxPos.clone() : V3(...boxPos);
     setTimeout(() => {
-      if (!this.active || !box.on) return;
-      const bp = box.worldPos(V3());
-      const dark = !(PLAYER.room && PLAYER.room.lit);
-      const ok = this.has('box') && dark && !g.hunt && (g.pos.distanceTo(bp) < 6 || g.room === PLAYER.room) && chance(0.6);
+      if (!this.active) return;
+      const dark = !(p.room && p.room.lit);
+      const ok = this.has('box') && dark && !g.hunt && (g.pos.distanceTo(bp) < 6 || g.room === p.room) && chance(0.6);
+      let w = null;
       if (ok) {
         const dg = g.pos.distanceTo(bp);
-        let w;
-        if (g.id === 'deogen' && dg < 1.6) { w = '*breathing*'; SFX.breath(bp); }
+        if (g.id === 'deogen' && dg < 1.6) { w = '*breathing*'; wfx('breath', bp); }
         else if (k === 'where') w = dg < 2 ? pick(['Here', 'Behind', 'Close']) : dg < 5 ? pick(['Close', 'Here']) : pick(['Away', 'Far']);
         else if (k === 'age') w = g.age < 18 ? pick(['Young', 'Child']) : g.age < 50 ? 'Adult' : 'Old';
         else if (k === 'here' || k === 'name') w = pick(['Here', 'Yes', 'Close']);
         else w = pick(['Kill', 'Death', 'Die', 'Hurt', 'Leave']);
-        box.drawBox('word', w.replace(/\*/g, '')); box.answerT = 2.5;
-        if (w[0] !== '*') AudioSys.speak(w);
-        SFX.staticBurst(bp, 0.6);
-        HUD.sub(`Spirit Box: "${w}"`, 3);
-        if (g.id === 'moroi') { this.cursed = 60; }
+        if (g.id === 'moroi') this.cursed = 60;
         this.activity(4);
-      } else { box.drawBox('x'); box.answerT = 1.5; }
-    }, box.answerT * 1000);
+        if (w[0] !== '*') NET.event('fx', ['say', +bp.x.toFixed(2), +bp.y.toFixed(2), +bp.z.toFixed(2), w], p.pid);
+      }
+      if (p === PLAYER) this.showBoxAnswer(w); else NET.sendTo(p.pid, { t: 'box', w });
+    }, rand(1600, 2600));
+  },
+  showBoxAnswer(w) {
+    const box = this.askedBox; if (!box || !box.on) return;
+    const bp = box.worldPos(V3());
+    if (w) {
+      box.drawBox('word', w.replace(/\*/g, '')); box.answerT = 2.5;
+      if (w[0] !== '*') AudioSys.speak(w);
+      SFX.staticBurst(bp, 0.6);
+      HUD.sub(`Spirit Box: "${w}"`, 3);
+    } else { box.drawBox('x'); box.answerT = 1.5; }
   },
   takePhoto(it) {
     if (this.photos.length >= 10) { HUD.toast('Out of film (10 photos)'); return; }
@@ -3095,8 +3285,8 @@ const GAME = {
     const inShot = (q, maxD) => { const d = q.distanceTo(p); return d < maxD && fr.containsPoint(q) && _v2.subVectors(q, p).normalize().dot(PLAYER.fwd) > 0.82 && los(p, q); };
     const stars = (d, a, b) => (d < a ? 3 : d < b ? 2 : 1);
     const g = this.ghost, subj = [];
-    if (g && g.m.root.visible) { const q = g.eye(V3()).setY(g.pos.y + 1.1); if (inShot(q, 12)) { subj.push(['Ghost', stars(q.distanceTo(p), 3, 6), 40]); if (g.id === 'phantom' && g.event) g.endEvent(); } }
-    if (g && g.dots.root.visible && g.id !== 'goryo') { const q = g.pos.clone().setY(g.pos.y + 1); if (inShot(q, 8)) subj.push(['D.O.T.S', stars(q.distanceTo(p), 3, 5), 20]); }
+    if (g && g.m.root.visible) { const q = g.eye(V3()).setY(g.pos.y + 1.1); if (inShot(q, 12)) { subj.push(['Ghost', stars(q.distanceTo(p), 3, 6), 40]); if (g.id === 'phantom' && g.event && NET.role !== 'client') g.endEvent(); } }
+    if (g && g.dots.root.visible && g.dots.root.layers.mask & 1) { const q = g.pos.clone().setY(g.pos.y + 1); if (inShot(q, 8)) subj.push(['D.O.T.S', stars(q.distanceTo(p), 3, 5), 20]); }
     for (const pr of PRINTS) { const q = pr.mesh.getWorldPosition(V3()); if (pr.kind !== 'foot' && inShot(q, 3.5)) { subj.push(['Fingerprints', stars(q.distanceTo(p), 1.5, 2.5), 15]); break; } }
     for (const pr of PRINTS) { const q = pr.mesh.getWorldPosition(V3()); if (pr.kind === 'foot' && inShot(q, 3.5)) { subj.push(['Salt footprints', stars(q.distanceTo(p), 1.5, 2.5), 12]); break; } }
     for (const b of ITEM_LIST) if (b.type === 'book' && b.written && b.where === 'world' && inShot(b.mesh.position.clone().setY(b.mesh.position.y + 0.05), 3)) { subj.push(['Ghost Writing', stars(b.mesh.position.distanceTo(p), 1.2, 2), 15]); break; }
@@ -3122,60 +3312,116 @@ const GAME = {
   requestLeave() {
     if (this.hunt) { HUD.toast('The van doors won’t close during a hunt!'); return; }
     if (this.ending) return;
-    if (!this.guess) { if (!this.leaveWarned) { this.leaveWarned = true; HUD.toast('You haven’t picked a ghost type in the journal (J). Press again to leave anyway.'); return; } }
+    if (!this.guess && !PLAYER.dead) { if (!this.leaveWarned) { this.leaveWarned = true; HUD.toast('You haven’t picked a ghost type in the journal (J). Press again to leave anyway.'); return; } }
     this.leaveWarned = false;
-    this.ending = true; SFX.van(); $('#fade').style.opacity = 1;
-    setTimeout(() => this.finish(false), 900);
+    if (NET.role === 'client') { NET.action({ k: 'leave' }); return; }
+    this.endContract();
   },
-  die(g) {
-    if (PLAYER.dead) return;
-    PLAYER.dead = true; this.deathT = 0; this.deathGhost = g;
+  // host: the van leaves with everyone
+  endContract() {
+    if (this.ending || !this.active) return;
+    this.ending = true; VAN.doors.set(false); wfx('van', VAN.doors.pos);
+    NET.broadcast({ t: 'leaving' });
+    $('#fade').style.opacity = 1;
+    setTimeout(() => this.finish(PLAYER.dead), 1100);
+  },
+  localDeath(g) {
+    PLAYER.dead = true; PLAYER.dying = true; this.deathT = 0; this.deathGhost = g;
     for (const k in KEYS) KEYS[k] = false;
-    g.show(true); g.hunt && (g.hunt.t = 99);
+    if (g) g.show(true);
     $('#fx-red').style.opacity = 1;
     SFX.scream();
     HUD.hideTalk();
   },
+  // a guest is told by the host that the ghost got them
+  clientDied() {
+    for (const it of PLAYER.inv) if (it) removeItem(it);
+    PLAYER.inv = [null, null, null]; HUD.inv();
+    this.localDeath(this.ghost);
+  },
   updateDeath(dt) {
     this.deathT += dt;
     const g = this.deathGhost;
-    const target = g.eye(V3());
-    const want = Math.atan2(-(target.x - PLAYER.eye.x), -(target.z - PLAYER.eye.z));
-    let dy = want - PLAYER.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
-    PLAYER.yaw += dy * Math.min(1, dt * 8);
-    PLAYER.pitch = smooth(PLAYER.pitch, Math.atan2(target.y - PLAYER.eye.y, Math.hypot(target.x - PLAYER.eye.x, target.z - PLAYER.eye.z)), 8, dt);
-    const fx = -Math.sin(PLAYER.yaw), fz = -Math.cos(PLAYER.yaw);
-    g.pos.x = smooth(g.pos.x, PLAYER.pos.x + fx * 0.55, 6, dt); g.pos.z = smooth(g.pos.z, PLAYER.pos.z + fz * 0.55, 6, dt);
-    g.yaw = Math.atan2(PLAYER.pos.x - g.pos.x, PLAYER.pos.z - g.pos.z); g.speed = 0;
-    g.m.root.visible = this.deathT < 2.2 ? Math.random() > 0.15 : true;
-    g.syncModel(dt);
+    if (g) {
+      const target = g.eye(V3());
+      const want = Math.atan2(-(target.x - PLAYER.eye.x), -(target.z - PLAYER.eye.z));
+      let dy = want - PLAYER.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+      PLAYER.yaw += dy * Math.min(1, dt * 8);
+      PLAYER.pitch = smooth(PLAYER.pitch, Math.atan2(target.y - PLAYER.eye.y, Math.hypot(target.x - PLAYER.eye.x, target.z - PLAYER.eye.z)), 8, dt);
+      if (NET.role !== 'client') {
+        const fx = -Math.sin(PLAYER.yaw), fz = -Math.cos(PLAYER.yaw);
+        g.pos.x = smooth(g.pos.x, PLAYER.pos.x + fx * 0.55, 6, dt); g.pos.z = smooth(g.pos.z, PLAYER.pos.z + fz * 0.55, 6, dt);
+        g.yaw = Math.atan2(PLAYER.pos.x - g.pos.x, PLAYER.pos.z - g.pos.z); g.speed = 0;
+        g.m.root.visible = this.deathT < 2.2 ? Math.random() > 0.15 : true;
+      }
+    }
     camera.position.set(PLAYER.pos.x + rand(-0.02, 0.02), PLAYER.pos.y + PLAYER.eyeH + rand(-0.02, 0.02), PLAYER.pos.z);
     camera.rotation.set(PLAYER.pitch, PLAYER.yaw, rand(-0.03, 0.03));
     camera.updateMatrixWorld();
     PLAYER.eye.copy(camera.position);
     PLAYER.flash.intensity = Math.random() < 0.5 ? FLASH_POWER : 0;
-    if (this.deathT > 2.6 && !this.ending) { this.ending = true; $('#fade').style.opacity = 1; setTimeout(() => this.finish(true), 900); }
+    if (this.deathT > 2.6) {
+      PLAYER.dying = false;
+      const othersAlive = PL.alive().length > 0;
+      if (NET.role !== 'client' && !othersAlive) this.endContract();
+      else this.spectate();
+    }
+  },
+  // dead players in co-op keep watching (the ghost can't see them)
+  spectate() {
+    PLAYER.spectating = true;
+    $('#fade').style.opacity = 1;
+    setTimeout(() => { $('#fade').style.opacity = 0; $('#fx-red').style.opacity = 0; }, 700);
+    HUD.toast('You died. You are now a spectator — the ghost can’t see you. The contract ends when your team leaves the van.', 6);
   },
   finish(died) {
+    if (!this.active) return;
     this.active = false;
     AudioSys.setLoop(AudioSys.drone, 0, 1); AudioSys.setLoop(AudioSys.boxStatic, 0); AudioSys.setLoop(AudioSys.crackle, 0); AudioSys.setLoop(AudioSys.elecBuzz, 0); AudioSys.setLoop(AudioSys.breathLoop, 0);
     if ('speechSynthesis' in window) speechSynthesis.cancel();
     $('#fx-red').style.opacity = 0;
+    if (NET.role === 'host') NET.broadcast({ t: 'end', ghost: this.ghost.type.id, name: this.ghost.name, obj: this.obj.map((o) => o.done ? 1 : 0), bone: this.boneFound ? 1 : 0 });
     const res = computeRewards(died);
+    // everyone readies up again for the next contract
+    REMOTES.forEach((r) => r.dispose()); REMOTES.clear(); NET.ready = false; for (const gu of NET.guests.values()) gu.ready = false; NET.pruneOffline();
     UI.results(res);
     if (this.ghost) { this.ghost.show(false); this.ghost.dots.root.visible = false; }
   },
+  // a guest gets the result from the host
+  finishClient(m) {
+    if (!this.active) return;
+    const g = this.ghost;
+    g.type = GHOST_BY_ID[m.ghost]; g.nameOverride = m.name;
+    this.obj.forEach((o, i) => { o.done = !!m.obj[i]; });
+    this.boneFound = !!m.bone;
+    this.finish(PLAYER.dead);
+  },
+  // the host went away mid-contract
+  abortClient(why) {
+    if (!this.active) return;
+    this.active = false; NET.ready = false;
+    AudioSys.setLoop(AudioSys.drone, 0, 1); AudioSys.setLoop(AudioSys.boxStatic, 0); AudioSys.setLoop(AudioSys.crackle, 0); AudioSys.setLoop(AudioSys.elecBuzz, 0); AudioSys.setLoop(AudioSys.breathLoop, 0);
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    REMOTES.forEach((r) => r.dispose()); REMOTES.clear();
+    if (this.ghost) { this.ghost.show(false); this.ghost.dots.root.visible = false; }
+    $('#fx-red').style.opacity = 0; $('#fade').style.opacity = 0;
+    APP.setState('lobby');
+    HUD.toast(why || 'Lost the connection to the host.');
+  },
   // ---------------- per-frame ----------------
   update(dt) {
+    if (NET.role === 'client') { this.updateClient(dt); return; }
     this.time += dt;
     const D = DIFFS[this.diff];
-    if (this.setupLeft > 0) { this.setupLeft -= dt; if (this.setupLeft <= 0) { this.setupLeft = 0; HUD.toast('Setup phase over — the ghost can hunt now'); } }
-    if (PLAYER.dead) { this.updateDeath(dt); this.lighting(dt); return; }
-    playerUpdate(dt);
-    // sanity
-    if (PLAYER.inHouse && !(PLAYER.room && PLAYER.room.lit)) this.drain(0.13 * D.drain * (this.cursed > 0 ? 2 : 1) * dt);
+    if (this.setupLeft > 0) { this.setupLeft -= dt; if (this.setupLeft <= 0) { this.setupLeft = 0; NET.toastAll('Setup phase over — the ghost can hunt now'); } }
+    if (PLAYER.dying) this.updateDeath(dt); else playerUpdate(dt);
+    for (const rp of REMOTES.values()) rp.update(dt);
+    for (const d of WORLD.doors) d.update(dt);
+    VAN.doors.update(dt);
+    // sanity drains for everyone standing in a dark room of the house
+    for (const p of PL.alive()) if (p.inHouse && !(p.room && p.room.lit)) this.drainP(p, 0.13 * D.drain * (this.cursed > 0 ? 2 : 1) * dt);
     this.cursed = Math.max(0, this.cursed - dt);
-    if (this.sanity < 25) this.objective('sanity');
+    if (PL.alive().some((p) => p.sanity < 25)) this.objective('sanity');
     // emf sources
     for (let i = this.emf.length - 1; i >= 0; i--) { this.emf[i].life -= dt; if (this.emf[i].life <= 0) this.emf.splice(i, 1); }
     // temperatures
@@ -3186,15 +3432,48 @@ const GAME = {
       else if (g && r === g.room) tgt = r.temp - 3.5;
       r.tempNow += clamp(tgt - r.tempNow, -0.14 * dt, 0.08 * dt);
     }
-    if (PLAYER.room && PLAYER.room.tempNow < 0 && chance(dt * 0.6)) PARTICLES.puff(PLAYER.eye.clone().addScaledVector(PLAYER.fwd, 0.35).setY(PLAYER.eye.y - 0.08), 'breath');
     if (g) g.update(dt);
     updateProps(dt);
+    this.orbRoom = g && (this.has('orb') || g.type.fakeOrbs) ? g.home : null;
+    this.common(dt);
+    NET.hostTick(dt);
+    // everyone is dead: the contract is over
+    if (this.active && !this.ending && !PLAYER.dying && PL.alive().length === 0 && this.time - this.lastKillT > 3) this.endContract();
+  },
+  // guests mirror the host's world and only simulate themselves
+  updateClient(dt) {
+    this.time += dt;
+    if (this.setupLeft > 0) this.setupLeft = Math.max(0, this.setupLeft - dt);
+    if (PLAYER.dying) this.updateDeath(dt); else playerUpdate(dt);
+    NET.clientTick(dt);
+    for (const rp of REMOTES.values()) rp.update(dt);
+    for (const d of WORLD.doors) d.update(dt);
+    VAN.doors.update(dt);
+    const g = this.ghost;
+    if (g) {
+      g.netUpdate(dt);
+      huntSteps(g, dt);
+      // tell the host when we see a ghost event (it drains our sanity and counts for objectives)
+      if (g.event && g.visible && !PLAYER.dead && !this.sawSerials.has(g.eventSerial) && this.playerSees(g.eye(V3()), 0.9)) { this.sawSerials.add(g.eventSerial); NET.action({ k: 'saw', s: g.eventSerial }); }
+      if (g.airball && g.airball.visible && !PLAYER.dead && !this.sawSerials.has(g.eventSerial) && this.playerSees(g.airball.position)) { this.sawSerials.add(g.eventSerial); NET.action({ k: 'saw', s: g.eventSerial }); }
+      if (g.hunt && !this.wasHunt && PLAYER.inHouse && g.pos.distanceTo(PLAYER.pos) < 18) SFX.sting();
+      this.wasHunt = !!g.hunt;
+      this.hunt = g.hunt ? g : null;
+    }
+    updatePropsNet(dt);
+    this.common(dt);
+  },
+  // shared by host and guests: items, effects, lights, audio, van screens
+  common(dt) {
+    const g = this.ghost;
+    if (PLAYER.room && PLAYER.room.tempNow < 0 && !PLAYER.dead && chance(dt * 0.6)) PARTICLES.puff(PLAYER.eye.clone().addScaledVector(PLAYER.fwd, 0.35).setY(PLAYER.eye.y - 0.08), 'breath');
     this.updateItems(dt);
     updatePrints(dt);
     DOTS.update(dt);
-    ORBS.update(dt, g && (this.has('orb') || g.type.fakeOrbs) ? g.home : null, true);
+    ORBS.update(dt, this.orbRoom, true);
     PARTICLES.update(dt);
     this.lighting(dt);
+    updateRemoteBeams();
     // activity graph
     this.actT += dt; if (this.actT > 2) { this.actT = 0; this.act.shift(); this.act.push(this.actCur); this.actCur = 0; }
     // photo flash decay
@@ -3204,7 +3483,12 @@ const GAME = {
     AudioSys.setLoop(AudioSys.wind, outside ? 0.22 : 0.06, 1);
     AudioSys.setLoop(AudioSys.roomTone, PLAYER.inHouse ? 0.12 : 0, 1);
     AudioSys.setLoop(AudioSys.vanHum, PLAYER.room && PLAYER.room.id === 'van' ? 0.08 : 0, 1);
-    if (g && g.hunt) { const dp = g.pos; const pn = AudioSys.drone.panner; if (pn.positionX) { pn.positionX.value = dp.x; pn.positionY.value = dp.y + 1.4; pn.positionZ.value = dp.z; } AudioSys.drone.gain.gain.setTargetAtTime(g.m.root.visible ? 0.4 : 0.22, AudioSys.t, 0.03); }
+    if (g && g.hunt) {
+      AudioSys.setLoop(AudioSys.drone, 0.32, 3);
+      const dp = g.pos; const pn = AudioSys.drone && AudioSys.drone.panner;
+      if (pn && pn.positionX) { pn.positionX.value = dp.x; pn.positionY.value = dp.y + 1.4; pn.positionZ.value = dp.z; }
+      if (AudioSys.drone) AudioSys.drone.gain.gain.setTargetAtTime(g.m.root.visible ? 0.4 : 0.22, AudioSys.t, 0.03);
+    } else AudioSys.setLoop(AudioSys.drone, 0, 2);
     AudioSys.setLoop(AudioSys.elecBuzz, this.disturbAt(PLAYER.eye) > 0 && PLAYER.electronicsOn() ? 0.05 : 0, 10);
     // random house creaks
     if (PLAYER.inHouse && chance(dt * 0.05)) SFX.creak(V3(PLAYER.pos.x + rand(-6, 6), PLAYER.pos.y + 2.4, PLAYER.pos.z + rand(-6, 6)));
@@ -3235,7 +3519,7 @@ const GAME = {
     let anyCrackle = false;
     const held = PLAYER.held();
     for (const it of [...ITEM_LIST]) {
-      if (it.where === 'rack' || (it.where === 'hand' && it !== held)) continue;
+      if (it.where === 'rack' || it.where === 'remote' || (it.where === 'hand' && it !== held)) continue;
       const pos = it.worldPos(_v1).clone();
       const dist = this.disturbAt(pos);
       switch (it.type) {
@@ -3289,7 +3573,10 @@ const GAME = {
           if (it.burn <= 0) {
             it.lit = false;
             const slot = PLAYER.inv.indexOf(it); if (slot >= 0) PLAYER.inv[slot] = null;
-            removeItem(it); HUD.inv();
+            // guests only burn their own sticks; the host removes every burnt-out one
+            if (NET.role === 'client') { if (slot >= 0) { NET.action({ k: 'consume', id: it.id }); removeItem(it); } }
+            else removeItem(it);
+            HUD.inv();
           }
           break;
         }
@@ -3312,7 +3599,7 @@ function placeFuseBox(where) {
     for (let i = 0; i < 3; i++) bx(M.dgrey, 0.06, 0.08, 0.03, -0.1 + i * 0.0, -0.12 + i * 0.0, 0.07, g).position.set(-0.12 + i * 0.07, -0.12, 0.07);
     WORLD.scene.add(g);
     WORLD.fuse = { group: g, lever, lamp, pos: V3() };
-    WORLD.interact.push({ kind: 'fuse', r: 0.42, pos: () => WORLD.fuse.pos, label: () => (GAME.breaker ? 'Turn the power off' : 'Turn the power on'), use: () => { GAME.setBreaker(!GAME.breaker); } });
+    WORLD.interact.push({ kind: 'fuse', r: 0.42, pos: () => WORLD.fuse.pos, label: () => (GAME.breaker ? 'Turn the power off' : 'Turn the power on'), use: () => (NET.role === 'client' ? NET.action({ k: 'fuse' }) : GAME.setBreaker(!GAME.breaker)) });
   }
   const f = WORLD.fuse;
   if (where === 'garage') { f.group.position.set(5.0, 1.45, 0.17); f.group.rotation.y = 0; }
@@ -3347,12 +3634,21 @@ function drawVanScreens() {
   const A = VAN.screens.activity, g = A.tex.userData.g;
   g.fillStyle = '#05100a'; g.fillRect(0, 0, 256, 144);
   g.fillStyle = '#7dff9b'; g.font = '12px monospace'; g.fillText('SITE ACTIVITY', 8, 14);
-  g.strokeStyle = '#1d4a2a'; for (let y = 24; y < 100; y += 15) { g.beginPath(); g.moveTo(8, y); g.lineTo(248, y); g.stroke(); }
+  // one sanity bar per investigator, like the real van monitor
+  const team = [PLAYER, ...[...REMOTES.values()].filter((r) => !r.away)].slice(0, MAX_PLAYERS);
+  const gBot = team.length > 2 ? 72 : 84;
+  g.strokeStyle = '#1d4a2a'; for (let y = 24; y <= gBot; y += 12) { g.beginPath(); g.moveTo(8, y); g.lineTo(248, y); g.stroke(); }
   g.strokeStyle = '#7dff9b'; g.beginPath();
-  GAME.act.forEach((v, i) => { const x = 8 + i * 4, y = 98 - Math.min(74, v * 7); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
-  g.fillText('SANITY', 8, 118);
-  g.fillStyle = '#1d4a2a'; g.fillRect(64, 109, 150, 12); g.fillStyle = GAME.sanity < 35 ? '#ff6b5b' : '#7dff9b'; g.fillRect(64, 109, 150 * GAME.sanity / 100, 12);
-  g.fillStyle = '#c8ffd4'; g.fillText(Math.round(GAME.sanity) + '%', 220, 119);
+  GAME.act.forEach((v, i) => { const x = 8 + i * 4, y = gBot - Math.min(gBot - 24, v * 7); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
+  const rowH = team.length > 2 ? 16 : 22, top = gBot + 8;
+  team.forEach((pl, i) => {
+    const y = top + i * rowH, san = pl === PLAYER ? GAME.sanity : pl.sanity, nm = (pl === PLAYER ? cleanName(SAVE.profile.name) : pl.name).slice(0, 8).toUpperCase();
+    g.fillStyle = pl.dead ? '#ff6b5b' : '#7dff9b'; g.fillText(nm, 8, y + 10);
+    g.fillStyle = '#1d4a2a'; g.fillRect(72, y + 1, 140, 10);
+    if (pl.dead) { g.fillStyle = '#ff6b5b'; g.fillText('DEAD', 220, y + 10); return; }
+    g.fillStyle = san < 35 ? '#ff6b5b' : '#7dff9b'; g.fillRect(72, y + 1, 140 * clamp(san, 0, 100) / 100, 10);
+    g.fillStyle = '#c8ffd4'; g.fillText(Math.round(san) + '%', 220, y + 10);
+  });
   if (GAME.setupLeft > 0) { g.fillStyle = '#ffcf6b'; g.fillText('SETUP ' + fmtTime(GAME.setupLeft), 150, 14); }
   A.tex.needsUpdate = true;
   // map
@@ -3409,17 +3705,619 @@ function computeRewards(died) {
   rows.push(['Bone', GAME.boneFound ? 10 : 0]);
   let sub = rows.reduce((a, r) => a + r[1], 0);
   const total = Math.round(sub * D.mult * (died ? 0.5 : 1));
-  // equipment lost on death (insurance covers part of it); consumables always used up
-  const lost = {}; const lo = GAME.loadout();
-  for (const [id, n] of Object.entries(GAME.consumed)) lost[id] = (lost[id] || 0) + n;
-  if (died) for (const [id, n] of Object.entries(lo)) { const keep = Math.round(n * D.insurance); lost[id] = Math.max(lost[id] || 0, n - keep); }
-  for (const [id, n] of Object.entries(lost)) { p.owned[id] = Math.max(ITEMS[id].core ? 1 : 0, (p.owned[id] || 0) - n); }
+  // the van carries the host's equipment (multiplied for the team), so only the
+  // host pays for what was used up, and for what was lost if the host died
+  const lost = {};
+  if (NET.role !== 'client') {
+    const lo = GAME.loadout();
+    for (const [id, n] of Object.entries(GAME.consumed)) lost[id] = Math.min(lo[id] || 0, Math.ceil(n / GAME.players));
+    if (died) for (const [id, n] of Object.entries(lo)) { const keep = Math.round(n * D.insurance); lost[id] = Math.max(lost[id] || 0, n - keep); }
+    for (const [id, n] of Object.entries(lost)) { if (n > 0) p.owned[id] = Math.max(ITEMS[id].core ? 1 : 0, (p.owned[id] || 0) - n); else delete lost[id]; }
+  }
   const xp = Math.round((40 + (correct ? 60 : 0) + objs.filter((o) => o[2]).length * 20 + photoTotal) * D.mult * (died ? 0.5 : 1));
   const lvBefore = levelFromXp(p.xp);
   p.money += total; p.xp += xp; p.stats.contracts++; if (died) p.stats.deaths++; if (correct) p.stats.correct++;
   persist();
   return { died, correct, ghost: g, guess: GAME.guess, rows, mult: D.mult, total, xp, levelUp: levelFromXp(p.xp) > lvBefore, lost, diff: D.name };
 }
+
+// ---------------------------------------------------------------- PLAYERS ---
+// Everyone in the contract: the local PLAYER plus teammates (RemotePlayer).
+const REMOTES = new Map();
+const MAX_PLAYERS = 4;
+const PL = {
+  all() { const a = [PLAYER]; for (const r of REMOTES.values()) if (!r.away) a.push(r); return a; },
+  alive() { return PL.all().filter((p) => !p.dead); },
+  inHouse() { return PL.alive().filter((p) => p.inHouse); },
+  avgSanity() { const a = PL.alive(); return a.length ? a.reduce((s, p) => s + p.sanity, 0) / a.length : 100; },
+};
+function spawnFor(pid) {
+  const o = [[0, 0], [-0.55, -0.7], [0.55, -0.7], [0, -1.4]][pid % 4];
+  return V3(VXC + o[0], VAN_FLOOR, 21.6 + o[1]);
+}
+// a dead player's equipment falls to the floor where they died
+function dropGearOf(p) {
+  const at = (i) => { const s = V3(p.pos.x + Math.cos(i * 2.1) * 0.35, 0, p.pos.z + Math.sin(i * 2.1) * 0.35); collideCircle(s, 0.12, p.pos.y); s.y = floorAt(s.x, s.z, p.pos.y); return s; };
+  if (p === PLAYER) {
+    PLAYER.inv.forEach((it, i) => { if (it) { if (it.def.toggle && it.on && it.type !== 'dots') it.setOn(false, false); placeInWorld(it, at(i), PLAYER.yaw); } });
+    PLAYER.inv = [null, null, null]; HUD.inv();
+  } else {
+    ITEM_LIST.filter((it) => it.where === 'remote' && it.holder === p.pid).forEach((it, i) => placeInWorld(it, at(i), p.yaw));
+  }
+}
+
+const AVATAR_COLORS = [0x3b6ea8, 0xa8453b, 0x4f8a3e, 0xb08a2e];
+function buildAvatar(color, name) {
+  const shirt = litMat({ color, emissive: 0x050505 }), skin = litMat({ color: 0xc9a27e }), jeans = litMat({ color: 0x2c3442 });
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  bx(shirt, 0.42, 0.58, 0.24, 0, 1.2, 0, body);
+  bx(jeans, 0.4, 0.12, 0.24, 0, 0.88, 0, body);
+  const head = new THREE.Group(); head.position.set(0, 1.62, 0); body.add(head);
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 5), skin); h.scale.set(0.95, 1.1, 1); head.add(h);
+  bx(shirt, 0.25, 0.08, 0.27, 0, 0.1, -0.01, head);
+  bx(M.black, 0.04, 0.03, 0.02, -0.045, 0.02, 0.11, head); bx(M.black, 0.04, 0.03, 0.02, 0.045, 0.02, 0.11, head);
+  const limb = (x, y, w, hgt, mat) => { const pv = new THREE.Group(); pv.position.set(x, y, 0); body.add(pv); bx(mat, w, hgt, w, 0, -hgt / 2, 0, pv); return pv; };
+  const armL = limb(-0.26, 1.46, 0.1, 0.62, shirt), armR = limb(0.26, 1.46, 0.1, 0.62, shirt);
+  const legL = limb(-0.1, 0.84, 0.15, 0.84, jeans), legR = limb(0.1, 0.84, 0.15, 0.84, jeans);
+  const torch = buildTorch(); torch.group.position.set(0, -0.62, 0.03); torch.group.rotation.set(-Math.PI / 2, 0, 0); armL.add(torch.group);
+  const slot = new THREE.Group(); slot.position.set(0, -0.64, 0.04); slot.rotation.set(-Math.PI / 2, 0, 0); armR.add(slot);
+  const label = makeLabel(); drawLabel(label, name); label.position.y = 2.05; label.scale.set(0.6, 0.11, 1); root.add(label);
+  root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  root.visible = false; WORLD.scene.add(root);
+  return { root, body, head, armL, armR, legL, legR, torch, slot, label, heldType: null, heldMesh: null };
+}
+
+class RemotePlayer {
+  constructor(pid, name) {
+    this.pid = pid; this.name = name || 'Investigator ' + pid;
+    this.pos = spawnFor(pid); this.tpos = this.pos.clone(); this.yaw = 0; this.tyaw = 0; this.pitch = 0;
+    this.crouch = false; this.flashOn = false; this.held = null; this.heldOn = false; this.talkT = -99;
+    this.dead = false; this.away = false; this.sanity = 100; this.survive = false;
+    this.eye = V3(); this.fwd = V3(0, 0, -1); this.room = null; this.inHouse = false; this.closet = null; this.hidden = false;
+    this.walk = 0; this.stepAcc = 0;
+    this.av = buildAvatar(AVATAR_COLORS[pid % 4], this.name);
+  }
+  get feetY() { return this.pos.y; }
+  electronicsOn() { if (this.dead) return false; const d = this.held && ITEMS[this.held]; return this.flashOn || !!(d && d.elec && (this.heldOn || this.held === 'photo')); }
+  // pose sent by the player's own browser: [x, y, z, yaw, pitch, flags, heldTypeIndex, heldOn]
+  pose(a) {
+    this.tpos.set(a[0], a[1], a[2]); this.tyaw = a[3]; this.pitch = a[4];
+    this.flashOn = !!(a[5] & 1); this.crouch = !!(a[5] & 2);
+    if (a[5] & 8) this.talkT = GAME.time;
+    this.held = a[6] >= 0 ? ITEM_ORDER[a[6]] : null; this.heldOn = !!a[7];
+  }
+  update(dt) {
+    const px = this.pos.x, pz = this.pos.z;
+    if (this.pos.distanceTo(this.tpos) > 3) this.pos.copy(this.tpos); else this.pos.lerp(this.tpos, 1 - Math.exp(-14 * dt));
+    let dy = this.tyaw - this.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    this.yaw += dy * (1 - Math.exp(-14 * dt));
+    this.eye.set(this.pos.x, this.pos.y + (this.crouch ? 1.0 : 1.6), this.pos.z);
+    this.fwd.set(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
+    this.room = roomAt(this.pos.x, this.pos.y + 0.5, this.pos.z);
+    this.inHouse = !!(this.room && this.room.house);
+    this.closet = WORLD.closets.find((c) => c.contains(this.pos, this.pos.y)) || null;
+    this.hidden = !!(this.closet && this.closet.door.isClosed);
+    const moved = Math.hypot(this.pos.x - px, this.pos.z - pz);
+    this.walk += moved * 4.2;
+    if (!this.dead && !this.away) {
+      this.stepAcc += moved;
+      if (this.stepAcc > 0.72) { this.stepAcc = 0; SFX.step(V3(this.pos.x, this.pos.y + 0.05, this.pos.z), this.room ? (this.room.id === 'van' ? 'metal' : this.room.surf) : 'grass', 0.7); }
+    }
+    // avatar
+    const A = this.av;
+    A.root.visible = APP.state === 'game' && !this.dead && !this.away;
+    if (!A.root.visible) return;
+    A.root.position.copy(this.pos); A.root.rotation.y = this.yaw + Math.PI;
+    A.body.position.y = this.crouch ? -0.45 : 0;
+    const sw = moved > 0.001 ? Math.sin(this.walk) * 0.5 : 0;
+    A.legL.rotation.x = sw; A.legR.rotation.x = -sw;
+    A.armL.rotation.x = -Math.PI / 2 - this.pitch * 0.8;
+    A.armR.rotation.x = this.held ? -Math.PI / 2.4 - this.pitch * 0.6 : -sw * 0.6;
+    A.head.rotation.x = -this.pitch * 0.6;
+    A.torch.lens.color.set(this.flashOn ? 0xfff6dc : 0x3a3a34);
+    if (A.heldType !== this.held) {
+      if (A.heldMesh) A.slot.remove(A.heldMesh);
+      A.heldMesh = this.held ? buildModel({ type: this.held }) : null;
+      if (A.heldMesh) { A.heldMesh.scale.setScalar(1.3); A.slot.add(A.heldMesh); if (this.held === 'book') { A.heldMesh.children[0].visible = true; A.heldMesh.children[1].visible = false; } }
+      A.heldType = this.held;
+    }
+  }
+  dispose() { WORLD.scene.remove(this.av.root); }
+}
+// teammates' flashlights light the world through the shader (up to three)
+function updateRemoteBeams() {
+  let i = 0;
+  for (const r of REMOTES.values()) {
+    if (i >= 3) break;
+    if (!r.flashOn || r.dead || r.away || !r.av.root.visible) continue;
+    r.av.torch.group.updateMatrixWorld(true);
+    const lp = r.av.torch.group.localToWorld(_v1.set(0, 0, -0.17));
+    const ld = r.av.torch.group.localToWorld(_v2.set(0, 0, -1.17)).sub(lp).normalize();
+    U.uRF.value[i].set(lp.x, lp.y, lp.z, 1); U.uRFD.value[i].set(ld.x, ld.y, ld.z, 0);
+    const rm = r.room, rc = rm ? rm.rects.find((c) => r.pos.x >= c[0] && r.pos.x <= c[2] && r.pos.z >= c[1] && r.pos.z <= c[3]) || rm.rects[0] : null;
+    if (rc) U.uRFR.value[i].set(rc[0] - 0.25, rc[1] - 0.25, rc[2] + 0.25, rc[3] + 0.25); else U.uRFR.value[i].set(-60, -60, 90, 90);
+    i++;
+  }
+  for (; i < 3; i++) U.uRF.value[i].w = 0;
+}
+
+// guests see a stand-in ghost that only mirrors what the host sends
+Ghost.proxy = function (info, scene) {
+  const g = Object.create(Ghost.prototype);
+  Object.assign(g, {
+    type: { id: '?', name: '?', ev: [] }, first: info.first, last: info.last, age: info.age, kind: info.kind,
+    pos: V3(0, -50, 0), netPos: V3(0, -50, 0), yaw: 0, netYaw: 0, speed: 0, walkPhase: 0, hunt: null, event: null, visible: false,
+    eventSerial: 0, room: null, scene, airball: null,
+  });
+  g.m = buildGhostModel(info.kind); g.m.root.visible = false; scene.add(g.m.root);
+  const dm = basicMat({ color: 0x4dff6a, transparent: true, opacity: 0.55, depthWrite: false });
+  g.dots = buildGhostModel(info.kind, dm); g.dots.root.visible = false; g.dotsMat = dm; scene.add(g.dots.root);
+  if (info.dotsCam) g.dots.root.traverse((o) => o.layers.set(1));
+  return g;
+};
+Ghost.prototype.netUpdate = function (dt) {
+  if (this.pos.distanceTo(this.netPos) > 2.5) this.pos.copy(this.netPos);
+  else { this.pos.lerp(this.netPos, 1 - Math.exp(-15 * dt)); }
+  let dy = this.netYaw - this.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+  this.yaw += dy * (1 - Math.exp(-12 * dt));
+  this.walkPhase += dt * this.speed * 4.2;
+  this.room = roomAt(this.pos.x, this.pos.y + 0.5, this.pos.z) || this.room;
+  this.syncModel(dt);
+  if (this.airball) { this.airball.position.lerp(this.airball.userData.net, 1 - Math.exp(-12 * dt)); this.airball.material.opacity = 0.35 + Math.sin(GAME.time * 8) * 0.1; }
+};
+// props on guests glide to where the host says they are
+function updatePropsNet(dt) {
+  const k = 1 - Math.exp(-14 * dt);
+  for (const p of WORLD.props) {
+    if (!p.net) continue;
+    const m = p.mesh, n = p.net;
+    if (m.position.distanceTo(n.pos) > 3) m.position.copy(n.pos); else m.position.lerp(n.pos, k);
+    m.rotation.x += (n.rot[0] - m.rotation.x) * k; m.rotation.y += (n.rot[1] - m.rotation.y) * k; m.rotation.z += (n.rot[2] - m.rotation.z) * k;
+  }
+}
+
+// ---------------------------------------------------------------- NET -------
+// Online co-op over WebRTC using PeerJS (only its free matchmaking server is
+// used; game traffic goes straight between browsers). Every player has a
+// permanent lobby code, so their invite link (…/?join=CODE) never changes.
+// The host's browser runs the whole game — ghost, doors, items, sanity — and
+// sends snapshots ~12 times a second; guests send their position and actions.
+const PROTO = 1, PEER_PREFIX = 'phasmo-tanglewood-v1-';
+const cleanName = (s) => String(s || '').replace(/[<>]/g, '').trim().slice(0, 18) || 'Investigator';
+const r2 = (v) => Math.round(v * 100) / 100;
+const NET = {
+  role: 'solo', status: 'offline', statusText: '', peer: null, myPid: 0, hostCode: null, conn: null,
+  guests: new Map(), lobby: [], hostDiff: null, hostInGame: false, ready: false, nextPid: 1, retryT: null, snapT: 0, poseT: 0, events: [], disabled: false,
+  get code() { return SAVE.profile.code; },
+  inviteLink() { return location.origin + location.pathname + '?join=' + this.code; },
+  setStatus(st, text = '') { this.status = st; this.statusText = text; if (APP.state === 'lobby' || APP.state === 'title') lobbyRender(); },
+  loadPeer() {
+    if (window.Peer) return Promise.resolve(window.Peer);
+    if (this._peerP) return this._peerP;
+    const srcs = ['./vendor/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js', 'https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js'];
+    this._peerP = (async () => {
+      for (const src of srcs) {
+        try {
+          await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+          if (window.Peer) return window.Peer;
+        } catch (e) { /* try the next source */ }
+      }
+      this._peerP = null;
+      throw new Error('Could not load the online library. Check your internet connection.');
+    })();
+    return this._peerP;
+  },
+  // ?peer=host:port uses a self-hosted PeerJS server (handy for testing)
+  opts() {
+    const v = new URLSearchParams(location.search).get('peer'), o = { debug: 1 };
+    if (v) { const [host, port] = v.split(':'); Object.assign(o, { host, port: Number(port) || 9000, path: '/', secure: false, key: 'peerjs' }); }
+    return o;
+  },
+  retry(fn, ms) { clearTimeout(this.retryT); this.retryT = setTimeout(fn, ms); },
+  dropPeer() { if (this.peer) { try { this.peer.destroy(); } catch (e) { /* already gone */ } } this.peer = null; this.conn = null; },
+  // ---------------- hosting (default for everyone) ----------------
+  async host() {
+    if (this.disabled || this.role === 'client' || this.peer) return;
+    this.role = 'host'; this.myPid = 0; PLAYER.pid = 0;
+    this.setStatus('connecting', 'Putting your lobby online…');
+    let P;
+    try { P = await this.loadPeer(); } catch (e) { this.setStatus('offline', e.message); this.retry(() => { this.peer = null; this.host(); }, 15000); return; }
+    if (this.role !== 'host' || this.peer) return;
+    const peer = this.peer = new P(PEER_PREFIX + this.code, this.opts());
+    peer.on('open', () => { if (this.peer === peer) this.setStatus('online', 'Your lobby is online'); });
+    peer.on('connection', (c) => this.accept(c));
+    peer.on('disconnected', () => { if (this.peer === peer && !peer.destroyed) { this.setStatus('connecting', 'Reconnecting…'); setTimeout(() => { if (this.peer === peer && !peer.destroyed) peer.reconnect(); }, 2500); } });
+    peer.on('error', (e) => {
+      if (this.peer !== peer) return;
+      if (e.type === 'unavailable-id') { this.setStatus('connecting', 'Your lobby code is still in use (is the game open in another tab?) — retrying…'); this.dropPeer(); this.retry(() => this.host(), 4000); }
+      else if (['network', 'server-error', 'socket-error', 'socket-closed', 'browser-incompatible'].includes(e.type)) { this.setStatus('offline', 'Online play is unavailable right now — retrying…'); this.dropPeer(); this.retry(() => this.host(), 8000); }
+      else console.warn('peer error', e.type);
+    });
+  },
+  guestCount() { let n = 0; for (const g of this.guests.values()) if (g.online) n++; return n; },
+  accept(conn) {
+    let pid = null;
+    conn.on('data', (m) => {
+      if (!m || typeof m !== 'object') return;
+      if (pid == null) { if (m.t === 'hello') pid = this.hello(conn, m); return; }
+      const g = this.guests.get(pid);
+      if (!g || g.conn !== conn) return;
+      g.heard = performance.now();
+      if (m.t === 'bye') { try { conn.close(); } catch (e) { /* ignore */ } this.guestLeft(pid, conn); return; }
+      this.fromGuest(g, m);
+    });
+    const gone = () => { if (pid != null) this.guestLeft(pid, conn); };
+    conn.on('close', gone); conn.on('error', gone);
+  },
+  hello(conn, m) {
+    const say = (msg) => { try { conn.send(msg); } catch (e) { /* closed */ } };
+    if (m.v !== PROTO) { say({ t: 'reject', why: 'Your game is a different version from your friend’s. Both of you refresh the page.' }); setTimeout(() => conn.close(), 800); return null; }
+    // someone coming back (after a refresh or a dropped connection) gets their seat back
+    let g = [...this.guests.values()].find((x) => x.cid === m.cid);
+    if (g) { if (g.conn && g.conn !== conn) { try { g.conn.close(); } catch (e) { /* ignore */ } } }
+    else {
+      if (this.guestCount() + 1 >= MAX_PLAYERS) { say({ t: 'reject', why: 'That lobby is full (4 players).' }); setTimeout(() => conn.close(), 800); return null; }
+      g = { pid: this.nextPid++, cid: m.cid, ready: false };
+      this.guests.set(g.pid, g);
+    }
+    Object.assign(g, { conn, name: cleanName(m.name), level: m.level | 0, online: true, heard: performance.now() });
+    say({ t: 'welcome', pid: g.pid, code: this.code });
+    HUD.toast(`${g.name} joined`); if (APP.state !== 'game') SFX.ui();
+    if (GAME.active) this.joinInProgress(g);
+    this.lobbyChanged();
+    return g.pid;
+  },
+  guestLeft(pid, conn) {
+    const g = this.guests.get(pid);
+    if (!g || g.conn !== conn) return;
+    g.online = false; g.conn = null; g.ready = false;
+    const rp = REMOTES.get(pid);
+    if (GAME.active && rp) { dropGearOf(rp); rp.away = true; rp.av.root.visible = false; }
+    if (!GAME.active) this.guests.delete(pid);
+    HUD.toast(`${g.name} left`);
+    this.lobbyChanged();
+  },
+  pruneOffline() { for (const [pid, g] of this.guests) if (!g.online) this.guests.delete(pid); this.lobbyChanged(); },
+  lobbyChanged() {
+    if (this.role !== 'host') return;
+    const players = [{ pid: 0, name: cleanName(SAVE.profile.name), level: levelFromXp(SAVE.profile.xp), ready: true, host: true }];
+    for (const g of this.guests.values()) if (g.online) players.push({ pid: g.pid, name: g.name, level: g.level, ready: g.ready });
+    this.lobby = players;
+    this.broadcast({ t: 'lobby', players, diff: SAVE.diff, inGame: GAME.active });
+    if (APP.state === 'lobby' || APP.state === 'title') lobbyRender();
+  },
+  send(conn, msg) { if (conn && conn.open) { try { conn.send(msg); } catch (e) { /* closed */ } } },
+  sendTo(pid, msg) { const g = this.guests.get(pid); if (g && g.online) this.send(g.conn, msg); },
+  broadcast(msg) { if (this.role === 'host') for (const g of this.guests.values()) if (g.online) this.send(g.conn, msg); },
+  toastTo(p, text) { if (p === PLAYER) HUD.toast(text); else this.sendTo(p.pid, { t: 'toast', text }); },
+  toastAll(text) { HUD.toast(text); this.broadcast({ t: 'toast', text }); },
+  // one-off things (sounds, fingerprints) ride along with the next snapshot
+  event(type, data, skipPid) { if (this.role === 'host' && this.guestCount()) this.events.push([type, data, skipPid ?? -1]); },
+  startAll() { for (const g of this.guests.values()) if (g.online) this.joinInProgress(g); },
+  joinInProgress(g) {
+    let rp = REMOTES.get(g.pid);
+    if (!rp) { rp = new RemotePlayer(g.pid, g.name); REMOTES.set(g.pid, rp); }
+    rp.away = false; rp.name = g.name;
+    this.sendTo(g.pid, this.startInfo(rp));
+  },
+  startInfo(rp) {
+    const gh = GAME.ghost;
+    return {
+      t: 'start', diff: GAME.diff, time: GAME.time, setup: GAME.setupLeft, fuse: WORLD.fuse.where, breaker: GAME.breaker,
+      bone: GAME.bone.position.toArray(), boneFound: GAME.boneFound, obj: GAME.obj.map((o) => o.id),
+      ghost: { kind: gh.kind, first: gh.first, last: gh.last, age: gh.age, dotsCam: gh.id === 'goryo' },
+      players: PL.all().map((p) => ({ pid: p.pid, name: p === PLAYER ? cleanName(SAVE.profile.name) : p.name })),
+      spawn: rp.pos.toArray(), yaw: rp.yaw, sanity: rp.sanity, dead: rp.dead, vanOpen: VAN.doors.open,
+    };
+  },
+  hostTick(dt) {
+    if (this.role !== 'host' || !this.guestCount()) { this.events.length = 0; return; }
+    this.snapT += dt;
+    if (this.snapT < 1 / 12) return;
+    this.snapT = 0;
+    const snap = GAME.snapshot();
+    for (const g of this.guests.values()) {
+      if (!g.online || !g.conn || !g.conn.open) continue;
+      const dc = g.conn.dataChannel;
+      if (dc && dc.bufferedAmount > 512 * 1024) continue; // a backed-up guest skips a snapshot
+      snap.ev = this.events.filter((e) => e[2] !== g.pid).map((e) => [e[0], e[1]]);
+      this.send(g.conn, snap);
+    }
+    this.events.length = 0;
+  },
+  fromGuest(g, m) {
+    const rp = REMOTES.get(g.pid);
+    switch (m.t) {
+      case 'ready': g.ready = !!m.r; this.lobbyChanged(); break;
+      case 'name': g.name = cleanName(m.name); if (rp) rp.name = g.name; this.lobbyChanged(); break;
+      case 'p': if (rp && GAME.active && !rp.away) rp.pose(m.a); break;
+      case 'rejoin': if (GAME.active) this.joinInProgress(g); break;
+      case 'a': if (rp && GAME.active) hostAction(rp, m); break;
+    }
+  },
+  // ---------------- joining a friend ----------------
+  async join(code) {
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length < 4) { HUD.toast('Enter your friend’s lobby code'); return; }
+    if (code === this.code) { HUD.toast('That’s your own code — send it to your friends instead.'); if (this.role !== 'host') { this.shutdown(); this.host(); } return; }
+    this.shutdown();
+    this.role = 'client'; this.hostCode = code; this.myPid = -1; this.ready = false; this.lobby = [];
+    this.setStatus('connecting', `Joining ${code}…`);
+    let P;
+    try { P = await this.loadPeer(); } catch (e) { this.setStatus('offline', e.message); this.retry(() => this.role === 'client' && this.join(code), 15000); return; }
+    if (this.role !== 'client' || this.hostCode !== code) return;
+    const peer = this.peer = new P(this.opts());
+    peer.on('open', () => { if (this.peer === peer) this.connectHost(); });
+    peer.on('disconnected', () => { if (this.peer === peer && !peer.destroyed) setTimeout(() => { if (this.peer === peer && !peer.destroyed) peer.reconnect(); }, 2500); });
+    peer.on('error', (e) => {
+      if (this.peer !== peer) return;
+      if (e.type === 'peer-unavailable') { this.setStatus('waiting', `Waiting for ${code} to open the game… (trying again every few seconds)`); this.retry(() => this.peer === peer && this.connectHost(), 4000); }
+      else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)) { this.setStatus('offline', 'Can’t reach the online service — retrying…'); this.dropPeer(); this.retry(() => this.role === 'client' && this.join(code), 8000); }
+      else console.warn('peer error', e.type);
+    });
+  },
+  connectHost() {
+    const peer = this.peer; if (!peer || peer.destroyed) return;
+    if (this.conn) { try { this.conn.close(); } catch (e) { /* ignore */ } this.conn = null; }
+    const c = peer.connect(PEER_PREFIX + this.hostCode, { reliable: true, serialization: 'json' });
+    c.on('open', () => {
+      if (this.peer !== peer) { c.close(); return; }
+      this.conn = c; this.heard = performance.now();
+      this.send(c, { t: 'hello', v: PROTO, cid: SAVE.profile.cid, name: cleanName(SAVE.profile.name), level: levelFromXp(SAVE.profile.xp) });
+    });
+    c.on('data', (m) => { if (this.conn === c && m && typeof m === 'object') { this.heard = performance.now(); if (m.t === 'bye') { this.conn = null; try { c.close(); } catch (e) { /* ignore */ } this.lostHost(); } else this.fromHost(m); } });
+    const lost = () => { if (this.conn === c) this.lostHost(); };
+    c.on('close', lost); c.on('error', lost);
+  },
+  lostHost() {
+    this.conn = null; this.myPid = -1;
+    if (this.role !== 'client') return;
+    if (GAME.active) GAME.abortClient(`Lost the connection to ${this.hostCode} — reconnecting…`);
+    this.setStatus('waiting', `Lost the host — reconnecting to ${this.hostCode}…`);
+    this.retry(() => this.role === 'client' && this.connectHost(), 3000);
+  },
+  fromHost(m) {
+    switch (m.t) {
+      case 'welcome': this.myPid = m.pid; PLAYER.pid = m.pid; this.setStatus('online', `You’re in ${this.hostCode}’s lobby`); clearTimeout(this.retryT); break;
+      case 'reject': this.leave(m.why); break;
+      case 'lobby': this.lobby = m.players; this.hostDiff = m.diff; this.hostInGame = !!m.inGame; if (APP.state === 'lobby' || APP.state === 'title') lobbyRender(); break;
+      case 'start': this.hostInGame = true; APP.startClient(m); break;
+      case 's': if (GAME.active) GAME.applySnapshot(m); break;
+      case 'give': if (GAME.active) clientGotItem(m); break;
+      case 'box': GAME.showBoxAnswer(m.w); break;
+      case 'scream': SFX.scream(); break;
+      case 'die': if (GAME.active) GAME.clientDied(); break;
+      case 'toast': HUD.toast(m.text); break;
+      case 'leaving': if (GAME.active) { SFX.van(); $('#fade').style.opacity = 1; } break;
+      case 'end': this.hostInGame = false; GAME.finishClient(m); break;
+    }
+  },
+  // keep-alive: a closed laptop or a lost Wi-Fi never says goodbye, so both sides
+  // ping every 2 s outside a contract and give up on silence after 20 s
+  tick(dt) {
+    this.hbT = (this.hbT || 0) + dt;
+    const beat = this.hbT > 2; if (beat) this.hbT = 0;
+    const now = performance.now();
+    if (this.role === 'host') {
+      if (beat && !GAME.active) this.broadcast({ t: 'hb' });
+      for (const [pid, g] of this.guests) if (g.online && now - (g.heard || now) > 20000) { const c = g.conn; try { c && c.close(); } catch (e) { /* ignore */ } this.guestLeft(pid, c); }
+    } else if (this.role === 'client' && this.conn) {
+      if (beat && !GAME.active) this.send(this.conn, { t: 'hb' });
+      if (now - (this.heard || now) > 20000) { const c = this.conn; this.conn = null; try { c.close(); } catch (e) { /* ignore */ } this.lostHost(); }
+    }
+  },
+  // closing the tab tells the others straight away
+  bye() { if (this.role === 'host') this.broadcast({ t: 'bye' }); else if (this.role === 'client') this.send(this.conn, { t: 'bye' }); },
+  action(a) { if (this.role === 'client') this.send(this.conn, { t: 'a', ...a }); },
+  setReady(r) { this.ready = r; this.send(this.conn, { t: 'ready', r }); },
+  clientTick(dt) {
+    this.poseT += dt;
+    if (this.poseT < 1 / 15) return;
+    this.poseT = 0;
+    const P = PLAYER, h = P.held();
+    const flags = (P.flashOn ? 1 : 0) | (P.crouch ? 2 : 0) | (GAME.time - P.talkT < 0.5 ? 8 : 0);
+    this.send(this.conn, { t: 'p', a: [r2(P.pos.x), r2(P.pos.y), r2(P.pos.z), r2(P.yaw), r2(P.pitch), flags, h ? ITEM_ORDER.indexOf(h.type) : -1, h && h.on ? 1 : 0] });
+  },
+  // leave a friend's lobby and go back to hosting our own
+  leave(why) {
+    this.shutdown();
+    if (location.search.includes('join=')) { const q = new URLSearchParams(location.search); q.delete('join'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '')); }
+    if (GAME.active) GAME.abortClient(why);
+    this.host();
+    if (why) HUD.toast(why);
+    lobbyRender();
+  },
+  shutdown() {
+    clearTimeout(this.retryT);
+    for (const g of this.guests.values()) if (g.conn) { try { g.conn.close(); } catch (e) { /* ignore */ } }
+    this.guests.clear();
+    this.dropPeer();
+    this.role = 'solo'; this.myPid = 0; PLAYER.pid = 0; this.lobby = []; this.hostCode = null; this.ready = false;
+  },
+};
+
+// ---- what the host does when a guest acts ----
+function hostAction(rp, m) {
+  const item = (id) => ITEM_LIST.find((x) => x.id === id);
+  const give = (it) => {
+    if (it.where === 'world') { it.mesh.parent && it.mesh.parent.remove(it.mesh); DOTS.clear(it); }
+    it.where = 'remote'; it.holder = rp.pid;
+    NET.sendTo(rp.pid, { t: 'give', id: it.id, type: it.type, s: it.netState() });
+  };
+  if (rp.dead && !['obj', 'saw', 'leave', 'quit'].includes(m.k)) return;
+  switch (m.k) {
+    case 'door': { const d = WORLD.doors[m.i]; if (d) d.playerToggle(); break; }
+    case 'switch': { const s = WORLD.switches[m.i]; if (s) { s.toggle(false); GAME.onPlayerLight(s.room, rp); } break; }
+    case 'fuse': GAME.setBreaker(!GAME.breaker); break;
+    case 'vandoor': VAN.doors.set(!VAN.doors.open); break;
+    case 'take': {
+      const s = VAN.rackSlots[m.slot]; if (!s || !s.items || !s.items.length) break;
+      const it = s.items.pop(); GAME.refreshRack(); give(it); break;
+    }
+    case 'pick': { const it = item(m.id); if (it && it.where === 'world') give(it); break; }
+    case 'drop': {
+      const it = item(m.id); if (!it || it.where !== 'remote' || it.holder !== rp.pid) break;
+      it.applyState(m.s); placeInWorld(it, V3(m.x, m.y, m.z), m.ry); break;
+    }
+    case 'rack': {
+      const it = item(m.id); if (!it || it.where !== 'remote' || it.holder !== rp.pid) break;
+      if (it.def.toggle && it.on) it.setOn(false, false);
+      GAME.returnToRack(it); break;
+    }
+    case 'toggle': { const it = item(m.id); if (it && it.where === 'world' && it.def.toggle) { it.setOn(!it.on, false); wfx('click', it.mesh.position); } break; }
+    case 'salt': {
+      const spot = V3(m.x, m.y, m.z);
+      const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.05, 7), M.white); mesh.position.copy(spot).setY(spot.y + 0.025); mesh.castShadow = false; WORLD.scene.add(mesh);
+      SALT.push({ pos: spot, mesh, stepped: false, room: roomAt(spot.x, spot.y + 0.3, spot.z) });
+      GAME.used('salt');
+      const it = item(m.id); if (it) { it.uses = m.u; if (m.u <= 0) removeItem(it); }
+      break;
+    }
+    case 'smudge': {
+      const it = item(m.id); if (it) { it.lit = true; it.burn = 10; }
+      const pos = V3(m.x, m.y, m.z);
+      if (GAME.ghost) GAME.ghost.smudged(pos, roomAt(pos.x, pos.y, pos.z));
+      GAME.used('smudge'); break;
+    }
+    case 'consume': { const it = item(m.id); if (it && it.holder === rp.pid) removeItem(it); break; }
+    case 'pills': {
+      const it = item(m.id); if (!it || it.holder !== rp.pid) break;
+      removeItem(it); rp.sanity = Math.min(100, rp.sanity + DIFFS[GAME.diff].pills); GAME.used('pills'); break;
+    }
+    case 'bone': if (GAME.bone.visible && GAME.bone.position.distanceTo(rp.pos) < 3.5) { GAME.boneFound = true; GAME.bone.visible = false; } break;
+    case 'say': GAME.sayFrom(rp, m.ph, m.box); break;
+    case 'saw': if (GAME.ghost) GAME.ghost.remoteSaw(rp, m.s); break;
+    case 'obj': if (['emf', 'cold', 'photo', 'event'].includes(m.id)) GAME.objective(m.id); break;
+    case 'leave': if (GAME.hunt) NET.toastTo(rp, 'The van doors won’t close during a hunt!'); else GAME.endContract(); break;
+    // a guest quit to the lobby but stays connected (they can rejoin)
+    case 'quit': dropGearOf(rp); rp.away = true; rp.av.root.visible = false; NET.toastAll(`${rp.name} left the contract`); break;
+  }
+}
+// a guest receives an item from the host (picked up or taken from the rack)
+function clientGotItem(m) {
+  let it = ITEM_LIST.find((x) => x.id === m.id);
+  if (it && it.where === 'world') { it.mesh.parent && it.mesh.parent.remove(it.mesh); DOTS.clear(it); }
+  if (!it) it = new Item(m.type, m.id);
+  it.applyState(m.s);
+  if (freeSlot() < 0) { // no room after all: put it straight back down
+    const spot = placementSpot(); placeInWorld(it, spot, PLAYER.yaw); it.pendingT = GAME.time + 2;
+    NET.action({ k: 'drop', id: it.id, x: r2(spot.x), y: r2(spot.y), z: r2(spot.z), ry: r2(PLAYER.yaw), s: it.netState() });
+    return;
+  }
+  for (const s of VAN.rackSlots) { const i = s.items ? s.items.indexOf(it) : -1; if (i >= 0) { s.items.splice(i, 1); GAME.refreshRack(); } }
+  pickUpItem(it);
+}
+
+// ---- snapshots: the host's world, ~12 times a second ----
+GAME.snapshot = function () {
+  const g = this.ghost;
+  const gf = (g.m.root.visible ? 1 : 0) | (g.hunt ? 2 : 0) | (g.event ? 4 : 0) | (g.event && g.event.type === 'chase' ? 8 : 0) | (g.dots.root.visible ? 16 : 0) | (g.hunt && g.hunt.grace < 3 ? 32 : 0) | (g.event && g.event.ball ? 64 : 0);
+  const s = {
+    t: 's', tm: r2(this.time), su: Math.ceil(this.setupLeft), br: this.breaker ? 1 : 0, vd: VAN.doors.open ? 1 : 0,
+    g: [r2(g.pos.x), r2(g.pos.y), r2(g.pos.z), r2(g.yaw), gf, r2(g.speed), r2(g.m.body.scale.x / g.m.scale), g.eventSerial],
+    pl: PL.all().concat([...REMOTES.values()].filter((r) => r.away)).map((p) => {
+      const h = p === PLAYER ? PLAYER.held() : null;
+      const held = p === PLAYER ? (h ? ITEM_ORDER.indexOf(h.type) : -1) : (p.held ? ITEM_ORDER.indexOf(p.held) : -1);
+      const on = p === PLAYER ? (h && h.on ? 1 : 0) : p.heldOn ? 1 : 0;
+      const f = (p.flashOn ? 1 : 0) | (p.crouch ? 2 : 0) | (p.dead ? 4 : 0) | (p.away ? 16 : 0);
+      return [p.pid, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.yaw), r2(p.pitch || 0), f, held, on, Math.round(p.sanity)];
+    }),
+    d: WORLD.doors.map((d) => [Math.round(d.target * 100), Math.round(d.speed * 10), d.locked ? 1 : 0]),
+    sw: ROOMS.map((r) => (r.switchOn ? 1 : 0)).join(''),
+    fl: [...this.flicker.keys()].map((r) => ROOMS.indexOf(r)),
+    tp: ROOMS.map((r) => Math.round(r.tempNow * 10)),
+    em: this.emf.map((e) => [r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), e.level]),
+    pp: WORLD.props.map((p) => { const m = p.mesh; return [r2(m.position.x), r2(m.position.y), r2(m.position.z), r2(m.rotation.x), r2(m.rotation.y), r2(m.rotation.z)]; }),
+    it: ITEM_LIST.filter((it) => it.where === 'world').map((it) => [it.id, ITEM_ORDER.indexOf(it.type), r2(it.placePos.x), r2(it.placePos.y), r2(it.placePos.z), r2(it.placeYaw), (it.on ? 1 : 0) | (it.lit ? 2 : 0), it.uses, it.written || 0]),
+    rk: VAN.rackSlots.map((sl, i) => (sl.type ? [i, ITEM_ORDER.indexOf(sl.type), sl.items.map((x) => x.id)] : null)).filter(Boolean),
+    sa: SALT.map((x) => [r2(x.pos.x), r2(x.pos.y), r2(x.pos.z), x.stepped ? 1 : 0]),
+    ob: this.obj.map((o) => (o.done ? 1 : 0)).join(''), bn: this.boneFound ? 1 : 0,
+    or: this.orbRoom ? ROOMS.indexOf(this.orbRoom) : -1,
+  };
+  if (g.event && g.event.ball) s.ab = g.event.ball.position.toArray().map(r2);
+  return s;
+};
+GAME.applySnapshot = function (s) {
+  this.setupLeft = s.su; this.time = Math.max(this.time, s.tm - 0.2);
+  if (!!s.br !== this.breaker) this.applyBreaker(!!s.br);
+  if (!!s.vd !== VAN.doors.open) VAN.doors.target = s.vd ? 1 : 0;
+  // ghost
+  const g = this.ghost, [gx, gy, gz, gyaw, gf, gsp, gsc, serial] = s.g;
+  g.netPos.set(gx, gy, gz); g.netYaw = gyaw; g.speed = gsp; g.eventSerial = serial;
+  g.m.root.visible = g.visible = !!(gf & 1);
+  g.hunt = gf & 2 ? (g.hunt || {}) : null; if (g.hunt) g.hunt.grace = gf & 32 ? 0 : 3.2;
+  g.event = gf & 4 ? { type: gf & 8 ? 'chase' : 'appear' } : null;
+  g.dots.root.visible = !!(gf & 16);
+  g.glow(g.hunt ? 1 : g.event ? 0.55 : 0);
+  g.m.body.scale.setScalar(g.m.scale * gsc);
+  if (s.ab) {
+    if (!g.airball) { g.airball = makeAirball(V3(...s.ab)); g.airball.userData.net = V3(...s.ab); }
+    g.airball.userData.net.set(...s.ab); g.airball.visible = true;
+  } else if (g.airball) { WORLD.scene.remove(g.airball); g.airball = null; }
+  // players
+  const here = new Set();
+  for (const [pid, x, y, z, yaw, pitch, f, held, on, san] of s.pl) {
+    if (pid === NET.myPid) {
+      PLAYER.sanity = san;
+      if (f & 4 && !PLAYER.dead) { PLAYER.dead = true; PLAYER.spectating = true; }
+      continue;
+    }
+    here.add(pid);
+    let rp = REMOTES.get(pid);
+    if (!rp) { const lp = NET.lobby.find((x) => x.pid === pid); rp = new RemotePlayer(pid, lp ? lp.name : null); REMOTES.set(pid, rp); }
+    rp.pose([x, y, z, yaw, pitch, f, held, on]); rp.dead = !!(f & 4); rp.away = !!(f & 16); rp.sanity = san;
+  }
+  for (const [pid, rp] of REMOTES) if (!here.has(pid)) { rp.dispose(); REMOTES.delete(pid); }
+  // doors, lights, temperatures, emf
+  s.d.forEach(([t, sp, lk], i) => { const d = WORLD.doors[i]; if (!d) return; d.locked = !!lk; if (Math.abs(d.target - t / 100) > 0.005) { d.target = t / 100; d.speed = sp / 10; } });
+  ROOMS.forEach((r, i) => { const on = s.sw[i] === '1'; if (on !== r.switchOn) { r.switchOn = on; (r.switches || []).forEach((sw) => sw.sync()); } r.tempNow = s.tp[i] / 10; });
+  for (const i of s.fl) this.flickerRoom(ROOMS[i], 0.25);
+  this.emf = s.em.map(([x, y, z, l]) => ({ pos: V3(x, y, z), level: l, life: 1 }));
+  this.orbRoom = s.or >= 0 ? ROOMS[s.or] : null;
+  // props
+  s.pp.forEach(([x, y, z, rx, ry, rz], i) => { const p = WORLD.props[i]; if (!p) return; if (!p.net) p.net = { pos: V3(), rot: [0, 0, 0] }; p.net.pos.set(x, y, z); p.net.rot = [rx, ry, rz]; });
+  // items lying in the house
+  const seen = new Set();
+  for (const [id, ti, x, y, z, ry, f, u, w] of s.it) {
+    seen.add(id);
+    let it = ITEM_LIST.find((x2) => x2.id === id);
+    if (it && it.where === 'hand') continue;
+    if (!it) it = new Item(ITEM_ORDER[ti], id);
+    if (it.where !== 'world' || !it.placePos || Math.abs(it.placePos.x - x) + Math.abs(it.placePos.y - y) + Math.abs(it.placePos.z - z) > 0.02 || Math.abs((it.placeYaw ?? 0) - ry) > 0.02) {
+      if (it.where === 'rack') for (const sl of VAN.rackSlots) { const k = sl.items ? sl.items.indexOf(it) : -1; if (k >= 0) sl.items.splice(k, 1); }
+      placeInWorld(it, V3(x, y, z), ry);
+    }
+    it.applyState({ on: f & 1, u, w, l: f & 2 ? 1 : 0 });
+  }
+  for (const it of [...ITEM_LIST]) if (it.where === 'world' && !seen.has(it.id) && !(it.pendingT > this.time)) removeItem(it);
+  // the van rack
+  const rk = JSON.stringify(s.rk);
+  if (rk !== this.lastRack) {
+    this.lastRack = rk;
+    const onRack = new Set();
+    for (const sl of VAN.rackSlots) { sl.type = null; sl.items = []; }
+    for (const [i, ti, ids] of s.rk) {
+      const sl = VAN.rackSlots[i]; sl.type = ITEM_ORDER[ti];
+      sl.items = ids.map((id) => { onRack.add(id); let it = ITEM_LIST.find((x) => x.id === id); if (it && it.where === 'hand') return null; if (!it) it = new Item(sl.type, id); if (it.where === 'world') { it.mesh.parent && it.mesh.parent.remove(it.mesh); DOTS.clear(it); } it.where = 'rack'; return it; }).filter(Boolean);
+    }
+    for (const it of [...ITEM_LIST]) if (it.where === 'rack' && !onRack.has(it.id)) removeItem(it);
+    this.refreshRack();
+  }
+  // salt piles
+  s.sa.forEach(([x, y, z, st], i) => {
+    let p = SALT[i];
+    if (!p) { const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.05, 7), M.white); mesh.position.set(x, y + 0.025, z); mesh.castShadow = false; WORLD.scene.add(mesh); p = { pos: V3(x, y, z), mesh, stepped: false }; SALT.push(p); }
+    if (st && !p.stepped) { p.stepped = true; p.mesh.scale.y = 0.25; }
+  });
+  // objectives and the bone
+  this.obj.forEach((o, i) => { const done = s.ob[i] === '1'; if (done && !o.done) { o.done = true; this.boardDirty = true; HUD.toast('Objective complete: ' + OBJECTIVES[o.id].text); } });
+  if (s.bn && !this.boneFound) { this.boneFound = true; this.bone.visible = false; }
+  // one-off events: sounds and fingerprints
+  for (const [type, d] of s.ev || []) {
+    if (type === 'fx') { const [name, x, y, z, ...args] = d; if (SFX[name]) SFX[name](V3(x, y, z), ...args); }
+    else if (type === 'pt') makePrint(d[0], d[1], d[2]);
+  }
+};
 
 // ---------------------------------------------------------------- UI --------
 const HUD = {
@@ -3454,7 +4352,8 @@ const HUD = {
       if (S.roomNames) { $('#roomname').textContent = n; $('#roomname').style.opacity = 1; this.roomT = 2.5; }
     }
     let st = '';
-    if (S.showSanity) st += `<div class="${GAME.sanity < 40 ? 'warn' : ''}">Sanity ${Math.round(GAME.sanity)}%</div>`;
+    if (PLAYER.dead) st += '<div class="warn">Dead · spectating</div>';
+    else if (S.showSanity) st += `<div class="${GAME.sanity < 40 ? 'warn' : ''}">Sanity ${Math.round(GAME.sanity)}%</div>`;
     if (GAME.setupLeft > 0) st += `<div>Setup ${fmtTime(GAME.setupLeft)}</div>`;
     if (!GAME.breaker) st += '<div class="warn">Power off</div>';
     this.set('stats', st);
@@ -3658,28 +4557,69 @@ function buildLobby() {
 }
 
 function lobbyRender() {
+  // the lobby redraws whenever a friend connects, so keep whatever is being typed
+  const ae = document.activeElement, keep = ae && ['pname', 'joincode'].includes(ae.id) ? { id: ae.id, v: ae.value, a: ae.selectionStart, b: ae.selectionEnd } : null;
+  const jc = $('#joincode') ? $('#joincode').value : '';
+  lobbyDraw();
+  if ($('#joincode')) $('#joincode').value = jc;
+  if (keep && $('#' + keep.id)) { const el = $('#' + keep.id); el.value = keep.v; el.focus(); try { el.setSelectionRange(keep.a, keep.b); } catch (e) { /* not a text field */ } }
+}
+function lobbyDraw() {
   const p = SAVE.profile, lv = levelFromXp(p.xp), lo = xpForLevel(lv), hi = xpForLevel(lv + 1);
   $('#lobby-money').textContent = money(p.money);
+  const guest = NET.role === 'client';
+  const roster = NET.lobby.length ? NET.lobby : guest ? [] : [{ pid: 0, name: cleanName(p.name), level: lv, ready: true, host: true }];
+  const rows = [];
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const pl = roster[i];
+    if (!pl) { rows.push('<div class="row empty"><span>— empty —</span><span></span></div>'); continue; }
+    const me = pl.pid === (guest ? NET.myPid : 0);
+    rows.push(`<div class="row"><span>${esc(pl.name)}${me ? ' (you)' : ''} <small style="color:#777">Lv ${pl.level}</small></span><span class="${pl.host || pl.ready ? 'ready' : ''}">${pl.host ? 'Host' : pl.ready ? 'Ready' : 'Not ready'}</span></div>`);
+  }
+  const st = NET.status, dot = st === 'online' ? '#1a7f37' : st === 'offline' ? '#9b1c12' : '#b58a2a';
+  let online;
+  if (guest) {
+    online = `<div style="font-size:20px"><span style="color:${dot}">●</span> ${esc(NET.statusText || 'Connecting…')}</div>
+      ${NET.hostInGame && NET.myPid > 0 ? '<div style="font-size:19px;margin-top:4px">Your friend’s contract is in progress.</div>' : ''}
+      <div style="display:flex;gap:8px;margin-top:6px">${NET.hostInGame && NET.myPid > 0 ? '<button class="btn" data-act="rejoin" style="color:#1d1d1d;border-color:#1b3f8f;font:700 20px var(--hand)">Rejoin contract</button>' : `<button class="btn" data-act="ready" style="color:#1d1d1d;border-color:#1b3f8f;font:700 20px var(--hand)">${NET.ready ? '✓ Ready' : 'Click when ready'}</button>`}
+      <button class="btn" data-act="leavelobby" style="color:#1d1d1d;border-color:#999;font:700 20px var(--hand)">Leave</button></div>`;
+  } else {
+    online = `<div style="font-size:20px"><span style="color:${dot}">●</span> ${esc(NET.statusText || (NET.disabled ? 'Online play is off' : 'Offline'))}</div>
+      <div style="font-size:19px;margin-top:4px">Your invite link (send it to friends once — it never changes):</div>
+      <div style="display:flex;gap:6px;margin-top:2px"><input id="invite" readonly value="${esc(NET.inviteLink())}" style="width:100%;font:16px var(--ui);border:1px solid #bbb;padding:3px"><button class="btn" data-act="copylink" style="color:#1d1d1d;border-color:#1b3f8f;font:16px var(--ui)">Copy</button></div>
+      <div style="font-size:17px;color:#555;margin-top:2px">While your game is open, friends who open it join you automatically — even mid-contract. If anything breaks they just refresh.</div>`;
+  }
   $('#lobby-board').innerHTML = `<h2>Investigators</h2>
-    <div class="row"><input id="pname" maxlength="18" value="${esc(p.name)}" aria-label="Your name"><span class="ready">Ready</span></div>
-    <div class="row empty"><span>— empty —</span><span></span></div><div class="row empty"><span>— empty —</span><span></span></div><div class="row empty"><span>— empty —</span><span></span></div>
-    <div style="margin-top:14px;font-size:24px">Level ${lv}</div>
+    <div class="row"><span>Your name</span><input id="pname" maxlength="18" value="${esc(p.name)}" aria-label="Your name" style="width:55%"></div>
+    ${rows.join('')}
+    <div style="margin-top:10px">${online}</div>
+    ${guest ? '' : `<div style="margin-top:8px;font-size:19px;display:flex;gap:6px;align-items:center">Join a friend: <input id="joincode" maxlength="6" placeholder="CODE" style="width:6.5em;font:700 18px var(--ui);text-transform:uppercase;border:1px solid #bbb;padding:2px 4px"><button class="btn" data-act="join" style="color:#1d1d1d;border-color:#1b3f8f;font:16px var(--ui)">Join</button></div>`}
+    <div style="margin-top:12px;font-size:24px">Level ${lv}</div>
     <div class="xpbar"><i style="width:${clamp((p.xp - lo) / (hi - lo), 0, 1) * 100}%"></i></div>
     <div style="font-size:18px;color:#555">${p.xp - lo} / ${hi - lo} XP</div>
     <div style="margin-top:12px;font-size:22px">Money: <b>${money(p.money)}</b></div>
     <div style="font-size:19px;color:#444;margin-top:6px">Contracts: ${p.stats.contracts} &nbsp; Ghosts identified: ${p.stats.correct} &nbsp; Deaths: ${p.stats.deaths}</div>`;
-  const D = DIFFS[SAVE.diff];
+  const diffKey = guest && NET.hostDiff ? NET.hostDiff : SAVE.diff;
+  const D = DIFFS[diffKey];
   $('#lobby-contract').innerHTML = `<h2>CONTRACT</h2>
     <div class="mapcard"><canvas id="mapthumb" width="132" height="84"></canvas><div><b>6 Tanglewood Drive</b>Small map &middot; 3 bedrooms, basement, garage<br><span class="muted">Fuse box: garage or basement</span></div></div>
     <div>DIFFICULTY</div>
-    <div class="diffs">${Object.entries(DIFFS).map(([k, d]) => `<button data-diff="${k}" class="${SAVE.diff === k ? 'sel' : ''}">${d.name}</button>`).join('')}</div>
+    <div class="diffs">${Object.entries(DIFFS).map(([k, d]) => `<button data-diff="${k}" class="${diffKey === k ? 'sel' : ''}" ${guest ? 'disabled' : ''}>${d.name}</button>`).join('')}</div>
+    ${guest ? '<div style="font-size:13px;color:#a9d6b4;margin-bottom:6px">The host picks the difficulty.</div>' : ''}
     <div class="diffinfo"><span>${D.name}</span> — ${D.desc}<br>Reward multiplier: <span>×${D.mult}</span> &middot; Evidence shown: <span>${D.evid}</span> &middot; Hunt length: <span>${D.hunt}s</span><br>Setup time: <span>${D.setup ? fmtTime(D.setup) : 'none'}</span> &middot; Sanity pills restore <span>${D.pills}%</span></div>`;
   const c = $('#mapthumb').getContext('2d'); c.fillStyle = '#000'; c.fillRect(0, 0, 132, 84);
   drawFloorplan(c, (x) => 6 + x * 5, (z) => 10 + z * 5, 5, 0, '#8dffa6', '#0f2a17');
   const lo2 = GAME.loadout();
-  $('#lobby-equip').innerHTML = `<h2>Equipment</h2><div class="eq"><div class="h">Item</div><div class="h c">Owned</div><div class="h c">Brought</div><div class="h c">Buy</div>
-    ${ITEM_ORDER.map((id) => { const it = ITEMS[id]; return `<div class="n" title="${esc(it.info)}">${it.name}</div><div class="c">${p.owned[id]}</div><div class="c">${lo2[id]}/${it.max}</div><div class="c"><button data-buy="${id}" ${p.money < it.price ? 'disabled' : ''}>${money(it.price)}</button></div>`; }).join('')}</div>
-    <p style="font-size:12px;color:#6d604c;margin-top:10px">Everything you own (up to the limit) is loaded into the van. Items you die with are lost unless insured; used consumables are gone. You always keep one of each evidence tool and the photo camera. Flashlight is free.</p>`;
+  const team = guest ? 1 : Math.max(1, roster.length);
+  $('#lobby-equip').innerHTML = `<h2>Equipment</h2><div class="eq"><div class="h">Item</div><div class="h c">Owned</div><div class="h c">In van</div><div class="h c">Buy</div>
+    ${ITEM_ORDER.map((id) => { const it = ITEMS[id]; return `<div class="n" title="${esc(it.info)}">${it.name}</div><div class="c">${p.owned[id]}</div><div class="c">${guest ? '—' : lo2[id] * team}</div><div class="c"><button data-buy="${id}" ${p.money < it.price ? 'disabled' : ''}>${money(it.price)}</button></div>`; }).join('')}</div>
+    <p style="font-size:12px;color:#6d604c;margin-top:10px">${guest ? 'You’re a guest, so the van carries the host’s equipment. What you buy is for when you host.' : `Everything you own (up to the limit) goes in the van${team > 1 ? `, <b>×${team} for ${team} players</b>` : ''}. Items you die with are lost unless insured; used consumables are gone. You always keep one of each evidence tool and the photo camera. Flashlight is free.`}</p>`;
+  const notReady = roster.filter((x) => !x.host && !x.ready).length;
+  const sb = $('#btn-start');
+  if (guest) { sb.disabled = true; sb.textContent = NET.myPid > 0 ? 'Waiting for the host to start…' : 'Not connected'; }
+  else { sb.disabled = notReady > 0; sb.textContent = notReady ? `Waiting for ${notReady} friend${notReady > 1 ? 's' : ''} to be ready` : `Ready — Start contract${roster.length > 1 ? ` (${roster.length} players)` : ''}`; }
+  const hostName = (roster.find((x) => x.host) || {}).name;
+  $('.lobby-top span').textContent = guest ? `LOBBY · ${(hostName || NET.hostCode || '').toUpperCase()}’S GAME` : roster.length > 1 ? 'LOBBY · CO-OP' : 'LOBBY · SOLO OR CO-OP';
   $('#title-profile').innerHTML = `${esc(p.name)} &middot; Level <b>${lv}</b> &middot; <b>${money(p.money)}</b>`;
 }
 
@@ -3701,8 +4641,11 @@ const APP = {
     for (const d of WORLD.doors) { d.angle = d.target = 0; d.pivot.rotation.y = d.rot(); d.locked = false; }
     WORLD.doors[5].angle = WORLD.doors[5].target = 0.8; WORLD.doors[5].pivot.rotation.y = WORLD.doors[5].rot();
     if (GAME.ghost) { GAME.ghost.show(false); }
+    VAN.doors.snap(false);
   },
   startContract() {
+    if (NET.role === 'client') return;
+    if (NET.lobby.some((x) => !x.host && !x.ready)) { HUD.toast('Waiting for everyone to click Ready'); return; }
     AudioSys.init();
     SAVE.profile.name = ($('#pname') && $('#pname').value.trim()) || SAVE.profile.name; persist();
     $('#fade').style.opacity = 1;
@@ -3716,6 +4659,19 @@ const APP = {
       this.askLock();
     }, 650);
   },
+  startClient(info) {
+    AudioSys.init();
+    $('#fade').style.opacity = 1;
+    setTimeout(() => {
+      GAME.startClient(info);
+      this.setState('game');
+      HUD.inv(); HUD.lastRoom = undefined;
+      HUD.hint('<kbd>WASD</kbd> move &nbsp; <kbd>Mouse</kbd> look &nbsp; <kbd>E</kbd> interact / take gear from the rack &nbsp; <kbd>F</kbd> flashlight<br><kbd>1</kbd>-<kbd>3</kbd> items &nbsp; <kbd>Click</kbd> use &nbsp; <kbd>G</kbd> drop &nbsp; <kbd>T</kbd> talk &nbsp; <kbd>J</kbd> journal &nbsp; <kbd>Esc</kbd> pause', 12);
+      HUD.toast(`Playing with ${NET.hostCode}: 6 Tanglewood Drive — ${DIFFS[GAME.diff].name}.`, 5);
+      $('#fade').style.opacity = 0;
+      this.askLock();
+    }, 400);
+  },
   askLock() {
     if (this.state !== 'game' || this.paused || JOURNAL.open) return;
     try {
@@ -3727,7 +4683,8 @@ const APP = {
   setPaused(p) {
     this.paused = p; $('#pause').classList.toggle('on', p); $('#hud').classList.toggle('paused', p);
     if (p) {
-      HUD.hideTalk(); for (const k in KEYS) KEYS[k] = false; if (AudioSys.ctx) AudioSys.ctx.suspend();
+      HUD.hideTalk(); for (const k in KEYS) KEYS[k] = false;
+      if (AudioSys.ctx && NET.role !== 'client' && !NET.guestCount()) AudioSys.ctx.suspend();
       // the menu needs a free mouse pointer, however the pause was triggered
       if (INPUT.locked) { INPUT.expectUnlock = true; document.exitPointerLock && document.exitPointerLock(); }
     }
@@ -3766,8 +4723,10 @@ const APP = {
     else if (this.fpsHist.length === 3 && this.fpsHist.every((f) => f > 58) && this.scale < 0.85) { this.scale = Math.min(0.85, this.scale + 0.05); this.applyScale(); this.fpsHist = []; }
   },
   update(dt) {
+    NET.tick(dt);
     if (this.state === 'game') {
-      if (!this.paused) { GAME.frame++; GAME.update(dt); HUD.update(dt); }
+      const coop = NET.role === 'client' || NET.guestCount() > 0;
+      if (!this.paused || coop) { GAME.frame++; GAME.update(dt); if (!this.paused) HUD.update(dt); }
       AudioSys.listen(camera);
     } else if (this.state === 'title' || this.state === 'loading') {
       this.titleT += dt;
@@ -3811,7 +4770,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('pointerlockerror', () => { if (APP.state === 'game' && !APP.paused && !JOURNAL.open) $('#lockhint').classList.add('on'); });
 $('#lockhint').addEventListener('click', () => { $('#lockhint').classList.remove('on'); AudioSys.init(); APP.askLock(); });
-canvas.addEventListener('click', () => { if (APP.state === 'game' && !INPUT.locked && !APP.paused && !JOURNAL.open) APP.askLock(); });
+canvas.addEventListener('click', () => { AudioSys.init(); if (APP.state === 'game' && !INPUT.locked && !APP.paused && !JOURNAL.open) APP.askLock(); });
 document.addEventListener('mousemove', (e) => {
   if (!INPUT.locked || APP.state !== 'game' || APP.paused || PLAYER.dead) return;
   // Chrome sometimes reports a huge jump right after the pointer locks
@@ -3862,7 +4821,7 @@ document.addEventListener('click', (e) => {
   if (!t) { if (e.target.id === 'modal') UI.closeModal(); return; }
   AudioSys.init(); SFX.ui();
   if (t.dataset.close !== undefined) { UI.closeModal(); return; }
-  if (t.dataset.diff) { SAVE.diff = t.dataset.diff; persist(); lobbyRender(); return; }
+  if (t.dataset.diff) { if (NET.role === 'client') return; SAVE.diff = t.dataset.diff; persist(); NET.lobbyChanged(); lobbyRender(); return; }
   if (t.dataset.buy) {
     const id = t.dataset.buy, it = ITEMS[id], p = SAVE.profile;
     if (p.money >= it.price) { p.money -= it.price; p.owned[id]++; persist(); lobbyRender(); }
@@ -3879,13 +4838,28 @@ document.addEventListener('click', (e) => {
     case 'menu': APP.setState('title'); break;
     case 'lobby': $('#fade').style.opacity = 0; APP.setState('lobby'); break;
     case 'start': APP.startContract(); break;
+    case 'copylink': {
+      const el = $('#invite'), link = NET.inviteLink();
+      const done = () => HUD.toast('Invite link copied — send it to your friends');
+      const fallback = () => { if (el) { el.focus(); el.select(); try { document.execCommand('copy'); done(); } catch (e2) { HUD.toast('Select the link and copy it (Ctrl+C)'); } } };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, fallback); else fallback();
+      break;
+    }
+    case 'join': NET.join($('#joincode') ? $('#joincode').value : ''); break;
+    case 'leavelobby': NET.leave(); break;
+    case 'ready': NET.setReady(!NET.ready); lobbyRender(); break;
+    case 'rejoin': NET.send(NET.conn, { t: 'rejoin' }); break;
     case 'howto': UI.howto(); break;
     case 'guide': UI.guide(); break;
     case 'about': UI.about(); break;
     case 'settings': UI.settings(); break;
     case 'resume': APP.setPaused(false); APP.askLock(); break;
     case 'journal': APP.setPaused(false); JOURNAL.show(); break;
-    case 'abandon': APP.setPaused(false); GAME.ending = true; $('#fade').style.opacity = 1; setTimeout(() => GAME.finish(false), 600); break;
+    case 'abandon':
+      APP.setPaused(false);
+      // a guest quits to the lobby but stays in their friend's game, so they can rejoin
+      if (NET.role === 'client') { NET.action({ k: 'quit' }); NET.ready = false; GAME.abortClient('You left the contract. Click “Rejoin contract” to go back in.'); break; }
+      GAME.ending = true; $('#fade').style.opacity = 1; setTimeout(() => GAME.finish(false), 600); break;
     case 'reset':
       if (confirm('Reset your money, level and equipment?')) { SAVE.profile = freshProfile(); persist(); lobbyRender(); UI.closeModal(); }
       break;
@@ -3901,7 +4875,15 @@ document.addEventListener('input', (e) => {
   persist(); APP.applySettings(true);
   const cs = $('#cur-scale'); if (cs) cs.textContent = Math.round(APP.scale * 100) + '%';
 });
-document.addEventListener('change', (e) => { if (e.target.id === 'pname') { SAVE.profile.name = e.target.value.trim() || 'Investigator'; persist(); } });
+// your name is saved as you type and sent to the lobby a moment after you stop
+let nameT = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'pname') return;
+  SAVE.profile.name = cleanName(e.target.value); persist();
+  clearTimeout(nameT);
+  nameT = setTimeout(() => { if (NET.role === 'client') NET.send(NET.conn, { t: 'name', name: SAVE.profile.name }); else NET.lobbyChanged(); lobbyRender(); }, 600);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'joincode') NET.join(e.target.value); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && APP.state === 'game' && !APP.paused && !PLAYER.dead) APP.setPaused(true); });
 
 // ---------------------------------------------------------------- MAIN ------
@@ -3929,15 +4911,30 @@ async function init() {
   setLoad('Ready', 1); await nextFrame();
   $('#screen-load').classList.remove('on');
   APP.setState('title');
+  // everyone's game is online as a lobby; ?join=CODE (the invite link) joins a friend's
+  const qs = new URLSearchParams(location.search), joinCode = qs.get('join');
+  if (qs.has('nonet')) NET.disabled = true;
+  if (joinCode && !NET.disabled) { APP.setState('lobby'); NET.join(joinCode); }
+  else NET.host();
   // ?debug exposes internals for automated tests and tinkering in the console
-  if (new URLSearchParams(location.search).has('debug')) window.PHASMO = { THREE, GAME, PLAYER, WORLD, APP, ROOMS, ROOM, ITEM_LIST, VAN, NAV, camera, renderer, useHeld, dropHeld, interactPressed, selectSlot, pickUpItem, JOURNAL, AIM, updateAim, SAVE };
-  let last = performance.now();
-  const frame = (now) => {
-    requestAnimationFrame(frame);
-    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
-    APP.update(dt); APP.render(); APP.adapt(dt);
+  if (new URLSearchParams(location.search).has('debug')) window.PHASMO = { THREE, GAME, PLAYER, WORLD, APP, ROOMS, ROOM, ITEM_LIST, VAN, NAV, camera, renderer, useHeld, dropHeld, interactPressed, selectSlot, pickUpItem, JOURNAL, AIM, updateAim, SAVE, NET, REMOTES, PL, KEYS, toggleAimedItem };
+  // ?norender runs the game without drawing (for automated multi-player tests)
+  APP.noDraw = new URLSearchParams(location.search).has('norender');
+  let last = performance.now(), lastFrame = last;
+  const step = (draw) => {
+    const now = performance.now(), dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+    APP.update(dt); if (draw && !APP.noDraw) APP.render(); APP.adapt(dt);
   };
+  const frame = () => { requestAnimationFrame(frame); lastFrame = performance.now(); step(true); };
   requestAnimationFrame(frame);
+  // Browsers stop drawing frames in a background tab. In co-op the game keeps
+  // running anyway (a worker's timer isn't paused), so friends aren't frozen
+  // when the host switches tabs.
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 50);'], { type: 'text/javascript' })));
+    w.onmessage = () => { if (performance.now() - lastFrame > 250 && NET.role !== 'solo' && (NET.role === 'client' || NET.guestCount())) step(false); };
+  } catch (e) { /* no workers: co-op pauses with the tab */ }
+  addEventListener('pagehide', () => NET.bye());
 }
 init().catch((e) => { console.error(e); setLoad('Something went wrong: ' + e.message); $('#screen-load').classList.add('on'); });
 </script>
