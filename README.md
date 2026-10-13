@@ -1,9 +1,10 @@
 # Phasmophobia: fan remake (6 Tanglewood Drive)
 
-A single-player ghost hunting game inspired by *Phasmophobia*, in **one HTML
-file** (`index.html`) that runs in Chrome on a Chromebook. It has a main menu,
-a lobby with contracts, difficulties and an equipment shop, and one map:
-**6 Tanglewood Drive**, with its garage, basement and the van parked out front.
+A ghost hunting game inspired by *Phasmophobia*, for 1 to 4 players, in **one
+HTML file** (`index.html`) that runs in Chrome on a Chromebook. It has a main
+menu, a lobby with contracts, difficulties and an equipment shop, online co-op,
+and one map: **6 Tanglewood Drive**, with its garage, basement and the van
+parked on the street to the left of the house.
 
 > Fan project. Not affiliated with or endorsed by Kinetic Games.
 > "Phasmophobia" is a trademark of its owner. Every model, texture and sound is
@@ -26,6 +27,32 @@ updates it.
 
 Click the game to capture the mouse. Your progress (money, level, equipment,
 settings) is saved in the browser.
+
+## Playing with friends (up to 4)
+
+Your invite link is in the lobby under **Investigators**. It looks like
+`https://nickypeakin.github.io/phasmo/?join=AB12CD`. Press **Copy** and send it
+to your friends once: **the link never changes**, so they can bookmark it.
+
+- Friends open the link and land in your lobby. They click **Click when
+  ready**, then you press **Start contract**.
+- **Your game must be open** for them to join. If they open the link first, they
+  see *Waiting for … to open the game* and join automatically as soon as you do.
+- **If anything goes wrong, refresh.** A friend who refreshes (or loses Wi-Fi)
+  rejoins in the same spot, even mid-contract. If you refresh, your friends
+  reconnect by themselves. Someone who quits a contract can click **Rejoin
+  contract** in the lobby.
+- **The van carries your equipment times the team size**: ×2 for two
+  players, ×3 for three, ×4 for four.
+- You can also type a friend's 6-letter code under **Join a friend**.
+
+How it works: your browser runs the game (ghost, doors, items, sanity) and
+sends it to your friends about 12 times a second over a direct WebRTC
+connection. [PeerJS](https://peerjs.com)'s free server is only used to find
+each other by code. The game keeps running if you switch tabs, but if you close
+it the contract ends for everyone. Dead players stay as spectators the ghost
+can't see, and the contract ends when someone presses the van's red button or
+everyone is dead.
 
 ### Controls
 
@@ -77,7 +104,8 @@ share a few plain objects.
 | **PLAYER** | Pointer-lock mouse look, WASD with sprint stamina and crouch, circle-vs-box collision, stairs, the flashlight, 3 inventory slots and the crosshair interaction ray. |
 | **GAME (contract)** | Setup timer, sanity drain, temperatures, the EMF source list, light flicker, objectives, photos, hunt start and end (door lock), death, and rewards. |
 | **UI / HUD** | Title, lobby (whiteboard, contract monitor, equipment clipboard), HUD, journal, pause, settings, results. |
-| **MAIN LOOP** | `requestAnimationFrame` with `dt` capped at 50 ms, auto resolution scaling, render passes. |
+| **PLAYERS / NET** | Other players' avatars (with flashlights that light the house), PeerJS hosting and joining, the permanent lobby code, rejoining by client id, keep-alives, guest actions applied by the host, and the snapshots guests mirror. |
+| **MAIN LOOP** | `requestAnimationFrame` with `dt` capped at 50 ms, auto resolution scaling, render passes. In co-op a worker timer keeps the game running in a background tab. |
 
 ## Why Three.js (3D) rather than Phaser (2D)
 
@@ -110,9 +138,8 @@ shadows Off.
 
 ## Differences from the real game
 
-Single player only for now. Online co-op for up to 4 players, with the van's
-equipment doubled, tripled or quadrupled to match the team size, is planned.
-There's no voice chat: questions are asked with the `T` menu. There's one map,
+There's no voice chat: questions are asked with the `T` menu (use Discord or
+similar to talk to friends). There's one map,
 no cursed possessions, and no motion, sound or parabolic equipment. Ghost
 behaviours are simplified versions of each type's main trait.
 
@@ -122,10 +149,13 @@ behaviours are simplified versions of each type's main trait.
 |---|---|
 | `index.html` | The whole game: HTML, CSS and JavaScript. |
 | `vendor/three.module.js` | three.js r170 (MIT, see `vendor/three.LICENSE`). |
+| `vendor/peerjs.min.js` | PeerJS 1.5.5 for co-op (MIT, see `vendor/peerjs.LICENSE`). Falls back to a CDN if missing. |
 | `.nojekyll` | Tells GitHub Pages to serve the files as they are. |
 
 ## Testing hooks
 
 Open `index.html?debug` to expose the internals as `window.PHASMO` in the
 console. `?debug&ghost=demon` forces a ghost type, which is useful for trying
-out a specific behaviour.
+out a specific behaviour. `?nonet` turns online play off, `?peer=host:port`
+uses your own [PeerJS server](https://github.com/peers/peerjs-server) instead
+of the free one, and `?norender` runs without drawing (for automated tests).
