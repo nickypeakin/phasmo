@@ -479,12 +479,12 @@ const ITEM_ORDER = Object.keys(ITEMS);
 
 const DIFFS = {
   amateur: { name: 'Amateur', setup: 300, drain: 1, evid: 3, hunt: 20, pills: 40, mult: 1, prints: 120, breaker: true, insurance: 0.5,
-    desc: '5:00 setup time. Normal sanity drain. Breaker starts on. 50% equipment insurance.' },
+    desc: '5:00 setup time. Normal sanity drain. 50% equipment insurance.' },
   intermediate: { name: 'Intermediate', setup: 120, drain: 1.5, evid: 3, hunt: 25, pills: 35, mult: 2, prints: 90, breaker: true, insurance: 0.25,
     desc: '2:00 setup time. Faster sanity drain. Longer hunts. 25% insurance.' },
-  professional: { name: 'Professional', setup: 0, drain: 2, evid: 3, hunt: 30, pills: 30, mult: 3, prints: 60, breaker: false, insurance: 0,
-    desc: 'No setup time. Breaker starts off. Fast sanity drain. No insurance.' },
-  nightmare: { name: 'Nightmare', setup: 0, drain: 2.2, evid: 2, hunt: 35, pills: 25, mult: 4, prints: 60, breaker: false, insurance: 0,
+  professional: { name: 'Professional', setup: 0, drain: 2, evid: 3, hunt: 30, pills: 30, mult: 3, prints: 60, breaker: true, insurance: 0,
+    desc: 'No setup time. Fast sanity drain. No insurance.' },
+  nightmare: { name: 'Nightmare', setup: 0, drain: 2.2, evid: 2, hunt: 35, pills: 25, mult: 4, prints: 60, breaker: true, insurance: 0,
     desc: 'Only 2 evidence types are shown. No setup. Long hunts. No insurance.' },
 };
 
@@ -3096,8 +3096,6 @@ const GAME = {
     if (!g) return;
     if (room.switchOn && !this.breaker) NET.toastTo(who, 'The power is off — find the fuse box');
     if (g.id === 'mare' && room.switchOn && g.room === room && chance(0.6)) setTimeout(() => { if (room.switchOn && this.active) { const s = room.switches[0]; s && s.toggle(false); this.addEMF(s.pos.clone(), this.emfLevel(2)); } }, rand(2000, 5000));
-    const on = ROOMS.filter((r) => r.switchOn && r.house).length;
-    if (this.breaker && on > 7) { this.setBreaker(false); NET.toastAll('Too many lights on — the breaker tripped!'); }
   },
   toggleVanDoors() {
     if (NET.role === 'client') { NET.action({ k: 'vandoor' }); return; }
@@ -3130,7 +3128,6 @@ const GAME = {
     this.hunt = null; this.ending = false; this.deathT = 0; this.boneFound = false; this.pendingPhoto = null; this.boardDirty = true;
     this.orbRoom = null; this.sawSerials = new Set(); this.leaveWarned = false; this.lastKillT = -99;
     for (const d of WORLD.doors) { d.locked = false; d.angle = d.target = 0; d.closing = d.slamming = false; d.pivot.rotation.y = d.rot(); d.col.off = false; for (const p of d.prints) p.life = 0; d.prints = []; }
-    { const fd = WORLD.frontDoor; fd.angle = fd.target = 1; fd.pivot.rotation.y = fd.rot(); fd.col.off = true; } // front door starts open toward the van
     VAN.doors.snap(false); // van doors start closed
     for (const r of ROOMS) { r.switchOn = false; r.flicker = 1; r.tempNow = r.temp + rand(-1, 1); }
     for (const s of WORLD.switches) s.sync();
@@ -3154,6 +3151,8 @@ const GAME = {
     // fuse box spawns in the garage or at the bottom of the basement stairs
     placeFuseBox(chance(0.5) ? 'garage' : 'basement');
     this.setBreaker(D.breaker, false);
+    // every light in the house starts on
+    for (const r of ROOMS) if (r.house && r.switches && r.switches.length) { r.switchOn = true; r.switches.forEach((sw) => sw.sync()); }
     // the ghost
     const qs = new URLSearchParams(location.search), want = qs.has('debug') && qs.get('ghost');
     const g = this.ghost = new Ghost(GHOST_BY_ID[want] ? want : pick(GHOSTS).id, WORLD.scene);
@@ -4402,7 +4401,7 @@ const UI = {
         <li>Break line of sight and <b>hide</b> in a closet or locker (boy's bedroom, master bedroom, garage, basement) and close the door with <kbd>E</kbd>.</li>
         <li><b>Turn your flashlight and electronics off</b> while hiding: ghosts sense active electronics within 7.5 m. Talking gives you away too.</li>
         <li>Crucifixes stop hunts, smudge sticks delay them (or blind the ghost during a hunt), and sanity medication restores sanity.</li>
-        <li>The fuse box is in the garage or at the bottom of the basement stairs. Too many lights on will trip it.</li>
+        <li>The lights are on when you arrive, but the ghost can switch them off or cut the power. The fuse box is in the garage or at the bottom of the basement stairs.</li>
       </ul>`);
   },
   guide() {
