@@ -1646,13 +1646,13 @@ function buildHouse(scene) {
     ['x', 3.3, 0, 5.2, [dop(1.2, 2.0), dop(3.7, 4.5)]],
     ['z', 3.2, 1.2, 3.3, []],
     ['z', 5.2, 2.2, 8.6, []],
-    ['z', 5.2, 10.6, 13.8, []],
-    ['x', 8.6, 0, 16, [dop(4.35, 5.15), arch(5.5, 7.3), op(11.8, 14.6, 1.05, H, 'pony'), op(14.6, 16, 0, H, 'open')]],
+    ['z', 5.2, 10.6, 16.3, []],
+    ['x', 8.6, 0, 16, [dop(4.35, 5.15), arch(5.5, 7.3), dop(10.25, 11.15), op(11.8, 14.6, 1.05, H, 'pony'), op(14.6, 16, 0, H, 'open')]],
     ['z', 3.4, 8.6, 16.3, [dop(11.6, 12.5), dop(14.3, 15.1)]],
     ['x', 13.2, 0, 3.4, []],
-    ['x', 16.3, 0, 7.5, [dop(3.55, 4.4), dop(5.85, 6.85)]],
+    ['x', 16.3, 0, 7.5, [dop(3.55, 4.4), dop(6.3, 7.3)]],
     ['z', 7.5, 8.6, 19.6, [dop(10.2, 11.1)]],
-    ['x', 11.8, 7.5, 16, [dop(9.4, 10.3)]],
+    ['x', 11.8, 7.5, 16, [dop(10.25, 11.15)]],
     ['z', 11.8, 8.6, 11.8, []],
     ['z', 9.6, 2.2, 6.9, []],
     ['z', 11.8, 2.2, 6.9, []],
@@ -1662,7 +1662,7 @@ function buildHouse(scene) {
   // basement walls; the side of the stairs opens at the bottom
   const B = [
     ['x', 2.2, 9.6, 16, []], ['x', 11.8, 9.6, 16, []], ['z', 9.6, 2.2, 11.8, []], ['z', 16, 2.2, 11.8, []],
-    ['z', 11.8, 2.2, 6.9, [op(2.2, 3.0, 0, 0, 'arch')]], ['x', 6.9, 9.6, 11.8, []],
+    ['z', 11.8, 2.2, 6.9, [op(2.2, 3.9, 0, 0, 'arch')]], ['x', 6.9, 9.6, 11.8, []],
   ];
   for (const [ax, c, a, b, ops] of B) wallRun(ax, c, a, b, BY, 0, ops.map((o) => ({ ...o, bot: BY, top: BY + 2.4 })), 'block');
   // floors & ceilings
@@ -1765,8 +1765,7 @@ function furnish() {
   F.rug(p(4.3, 13.0, 0), 0.8, 5.0, M.red);
   F.rug(p(6.35, 13.6, 0), 1.4, 2.8, M.blue);
   const con = p(5.48, 12.2, 1); con.box(M.darkwood, -0.5, 0.75, -0.17, 0.5, 0.8, 0.17, true); con.box(M.darkwood, -0.46, 0, -0.13, 0.46, 0.75, 0.13);
-  p(7.22, 15.0, 3).box(M.darkwood, -0.6, 0, -0.17, 0.6, 0.45, 0.17, true);
-  const cr = p(5.5, 15.95, 0); cr.box(M.darkwood, -0.03, 0, -0.03, 0.03, 1.8, 0.03, true); cr.box(M.darkwood, -0.2, 1.65, -0.02, 0.2, 1.68, 0.02);
+  p(7.22, 14.0, 3).box(M.darkwood, -0.6, 0, -0.17, 0.6, 0.45, 0.17, true);
   F.frame(p(7.39, 12.9, 3), 0.6, 0.8, 1.2); F.frame(p(3.51, 13.5, 1), 0.5, 0.6, 1.4); F.frame(p(5.32, 12.2, 1), 0.7, 0.5, 1.45);
   // ---- Living room
   F.sofa(p(5.75, 5.2, 1), 2.2);
@@ -1794,10 +1793,10 @@ function furnish() {
   // ---- Utility room
   F.washer(p(8.1, 9.0, 0)); F.washer(p(8.75, 9.0, 0));
   F.sink(p(9.7, 8.98, 0));
-  F.shelf(p(11.5, 10.0, 3), 1.4, 0.4, 1.8, M.white, false);
-  F.boxes(p(11.45, 10.0, 3, 0.05), 1);
-  { const wh = cyl(M.white, 0.28, 0.28, 1.5, 10, 11.3, 0.75, 9.0); WORLD.scene.add(wh); addCol(11.02, 11.58, 8.72, 9.28, 0, 1.5, { furn: true }); }
-  p(8.6, 11.45, 2).box(M.lwood, -0.25, 0, -0.18, 0.25, 0.3, 0.18, true);
+  F.shelf(p(11.5, 10.4, 3), 1.4, 0.4, 1.8, M.white, false);
+  F.boxes(p(11.45, 10.4, 3, 0.05), 1);
+  { const wh = cyl(M.white, 0.28, 0.28, 1.5, 10, 8.0, 0.75, 11.4); WORLD.scene.add(wh); addCol(7.72, 8.28, 11.12, 11.68, 0, 1.5, { furn: true }); }
+  p(9.1, 11.45, 2).box(M.lwood, -0.25, 0, -0.18, 0.25, 0.3, 0.18, true);
   // ---- Garage
   F.car(p(11.6, 15.9, 0));
   p(13.8, 12.22, 0).box(M.lwood, -1.2, 0, -0.3, 1.2, 0.9, 0.3, true); p(13.8, 11.92, 0).box(M.dgrey, -1.2, 1.1, -0.02, 1.2, 2.0, 0.0);
@@ -1818,7 +1817,7 @@ function furnish() {
   b(15.35, 2.75, 0).box(M.dgrey, -0.45, 0, -0.45, 0.45, 1.7, 0.45, true); b(15.35, 2.75, 0).box(M.chrome, -0.08, 1.7, -0.08, 0.08, 2.6, 0.08);
   { const wh = cyl(M.white, 0.28, 0.28, 1.5, 10, 14.35, BY + 0.75, 2.6); WORLD.scene.add(wh); addCol(14.07, 14.63, 2.32, 2.88, BY, BY + 1.5, { furn: true }); }
   F.shelf(b(15.73, 6.2, 3), 2.2, 0.45, 1.9, M.metal, false); F.boxes(b(15.7, 5.6, 3, 0.05), 2); F.boxes(b(15.7, 6.8, 3, 1.4), 1);
-  F.sofa(b(12.35, 4.6, 1), 1.8, M.sheet);
+  F.sofa(b(12.35, 5.5, 1), 1.8, M.sheet);
   b(13.4, 11.45, 2).box(M.lwood, -1.0, 0, -0.3, 1.0, 0.9, 0.3, true);
   F.boxes(b(15.4, 11.3, 0), 3); F.boxes(b(10.4, 8.0, 0), 2);
   // ---- props that ghosts can throw
@@ -1832,7 +1831,7 @@ function furnish() {
     ['bottle', 2.4, 0.88, 13.55], ['bottle', 0.4, 0.88, 2.3],
     ['jar', 2.0, 0.78, 17.9], ['cup', 3.0, 0.78, 18.4], ['book', 2.6, 0.78, 18.3],
     ['bottle', 9.6, 0.88, 8.95], ['can', 13.4, 0.9, 12.2], ['can', 14.1, 0.9, 12.25], ['bottle', 8.1, 0.88, 9.0],
-    ['toy', 13.4, 0.85 + BY, 8.0], ['can', 13.0, 0.9 + BY, 11.4], ['bottle', 13.8, 0.9 + BY, 11.45], ['book', 12.4, 0.42 + BY, 4.4],
+    ['toy', 13.4, 0.85 + BY, 8.0], ['can', 13.0, 0.9 + BY, 11.4], ['bottle', 13.8, 0.9 + BY, 11.45], ['book', 12.35, 0.42 + BY, 5.3],
   ];
   for (const [t, x, y, z] of props) addProp(t, x, y, z);
 }
@@ -1857,7 +1856,7 @@ function addProp(type, x, y, z) {
 
 function buildDoorsAndSwitches() {
   const D = (o) => new Door({ mat: M.door, ...o });
-  WORLD.frontDoor = D({ name: 'Front door', axis: 'x', hinge: [5.85, 0, 16.3], width: 1.0, swing: -1, mat: M.frontDoor });
+  WORLD.frontDoor = D({ name: 'Front door', axis: 'x', hinge: [6.3, 0, 16.3], width: 1.0, swing: -1, mat: M.frontDoor });
   WORLD.basementDoor = D({ name: 'Basement door', axis: 'x', hinge: [10.25, 0, 6.9], width: 0.9, swing: 1 });
   D({ axis: 'x', hinge: [4.35, 0, 8.6], width: 0.8, swing: -1 });     // master bedroom
   D({ axis: 'x', hinge: [1.2, 0, 3.3], width: 0.8, swing: -1 });      // master bathroom
@@ -1866,12 +1865,13 @@ function buildDoorsAndSwitches() {
   D({ axis: 'z', hinge: [3.4, 0, 14.3], width: 0.8, swing: -1 });     // main bathroom
   D({ axis: 'x', hinge: [3.55, 0, 16.3], width: 0.85, swing: 1 });    // hobby room
   D({ axis: 'z', hinge: [7.5, 0, 10.2], width: 0.9, swing: 1 });      // utility room from the foyer
-  D({ axis: 'x', hinge: [9.4, 0, 11.8], width: 0.9, swing: 1 });      // utility room to the garage
+  D({ axis: 'x', hinge: [10.25, 0, 8.6], width: 0.9, swing: 1 });    // utility room from the dining corridor (opposite the basement)
+  D({ axis: 'x', hinge: [10.25, 0, 11.8], width: 0.9, swing: 1 });   // utility room to the garage, in line with it
   const S = (id, x, y, z, nx, nz) => new Switch(ROOM[id], x, y, z, nx, nz);
-  S('foyer', 7.15, 1.2, 16.185, 0, -1); S('living', 7.55, 1.2, 8.485, 0, -1); S('master', 4.15, 1.2, 8.485, 0, -1);
+  S('foyer', 7.385, 1.2, 15.75, -1, 0); S('living', 7.55, 1.2, 8.485, 0, -1); S('master', 4.15, 1.2, 8.485, 0, -1);
   S('ensuite', 2.2, 1.2, 3.185, 0, -1); S('nancy', 3.285, 1.2, 12.7, -1, 0); S('bath', 3.285, 1.2, 15.3, -1, 0);
   S('hobby', 3.35, 1.2, 16.415, 0, 1); S('dining', 11.915, 1.2, 6.5, 1, 0); S('kitchen', 11.915, 1.2, 9.0, 1, 0);
-  S('utility', 7.615, 1.2, 9.9, 1, 0); S('garage', 10.5, 1.2, 11.915, 0, 1); S('basement', 11.4, 1.2, 6.785, 0, -1);
+  S('utility', 7.615, 1.2, 9.9, 1, 0); S('garage', 11.4, 1.2, 11.915, 0, 1); S('basement', 11.4, 1.2, 6.785, 0, -1);
   for (const r of ROOMS) if (r.house) addFixture(r, r.light[0], r.light[1], r.light[2], r.id === 'garage' ? 'tube' : r.id === 'basement' ? 'bare' : 'ceiling');
   addFixture(ROOM.basement, 10.7, -0.45, 3.2, 'bare');
 }
@@ -1907,6 +1907,7 @@ class Closet {
 // the master walk-in closet, two garage lockers and a boarded-up nook in the basement
 function buildClosets() {
   new Closet('Foyer closet', 3.5, 8.7, 4.32, 9.65, 'S');
+  new Closet('Coat closet', 5.3, 15.25, 6.22, 16.2, 'N');
   new Closet('Living room closet', 8.45, 2.3, 9.5, 3.25, 'S');
   new Closet("Nancy's closet", 2.3, 8.7, 3.3, 9.65, 'S');
   new Closet('Hobby room closet', 0.1, 16.4, 1.15, 17.35, 'S');
@@ -1927,7 +1928,7 @@ function buildExterior() {
   // street, sidewalks, front walk and driveway
   gq(M.asphalt, -40, 24.2, 64, 32.2, -0.01);
   gq(M.concrete, -40, 23.4, 64, 24.2, 0.03); gq(M.concrete, -40, 32.2, 64, 33, 0.03);
-  gq(M.concrete, 5.75, 19.6, 6.95, 23.4, 0.015); gq(M.concrete, 9.2, 19.6, 14.6, 23.4, 0.012);
+  gq(M.concrete, 6.2, 19.6, 7.4, 23.4, 0.015); gq(M.concrete, 9.2, 19.6, 14.6, 23.4, 0.012);
   for (let x = -38; x < 62; x += 6) gq(M.lamp, x, 28.1, x + 3, 28.25, 0.0);
   g.box(M.concrete, -40, 0, 24.12, 64, 0.12, 24.24);
   // fences around the back yard and invisible bounds
@@ -1950,8 +1951,8 @@ function buildExterior() {
   const head = new THREE.Mesh(UNIT_BOX, M.bulbOn); head.scale.set(0.5, 0.08, 0.25); head.position.set(16.7, 4.27, 23.7); WORLD.scene.add(head);
   U.uOut.value[0].set(16.7, 4.1, 23.7, 11); U.uOutC.value[0].set(0.55, 0.42, 0.25, 0);
   // porch light beside the front door
-  const porch = new THREE.Mesh(UNIT_BOX, M.bulbOn); porch.scale.set(0.12, 0.18, 0.08); porch.position.set(7.2, 2.1, 16.45); WORLD.scene.add(porch);
-  U.uOut.value[1].set(6.35, 2.2, 17.2, 6); U.uOutC.value[1].set(0.45, 0.33, 0.18, 0);
+  const porch = new THREE.Mesh(UNIT_BOX, M.bulbOn); porch.scale.set(0.12, 0.18, 0.08); porch.position.set(5.95, 2.1, 16.45); WORLD.scene.add(porch);
+  U.uOut.value[1].set(6.6, 2.2, 17.2, 6); U.uOutC.value[1].set(0.45, 0.33, 0.18, 0);
   // neighbours' houses across the street (silhouettes with a lit window)
   for (const [x, w] of [[-20, 9], [-6, 10], [8, 9], [22, 10]]) {
     g.box(M.siding, x, 0, 35, x + w, 3.2, 42); g.slope(M.shingle, V3(x + w, 3.0, 34.6), V3(x, 3.0, 34.6), V3(x, 5.0, 38.5), V3(x + w, 5.0, 38.5));
@@ -2053,21 +2054,21 @@ function buildNav() {
   N('b1', 2.0, 0, 14.7, 'bath');
   N('h1', 4.2, 0, 17.6, 'hobby'); N('h2', 3.9, 0, 18.95, 'hobby'); N('h3', 1.4, 0, 17.6, 'hobby');
   N('f1', 4.35, 0, 10.2, 'foyer'); N('f2', 4.3, 0, 12.05, 'foyer'); N('f3', 4.3, 0, 14.7, 'foyer'); N('f4', 4.1, 0, 15.9, 'foyer');
-  N('f5', 6.4, 0, 9.6, 'foyer'); N('f6', 6.4, 0, 12.4, 'foyer'); N('f7', 6.35, 0, 15.4, 'foyer');
+  N('f5', 6.4, 0, 9.6, 'foyer'); N('f6', 6.4, 0, 12.4, 'foyer'); N('f7', 6.8, 0, 14.9, 'foyer');
   N('l1', 6.5, 0, 7.5, 'living'); N('l2', 8.4, 0, 6.9, 'living'); N('l3', 8.4, 0, 4.0, 'living'); N('l4', 6.9, 0, 3.8, 'living');
   N('c1', 10.7, 0, 7.75, 'dining'); N('c2', 13.0, 0, 7.75, 'dining'); N('c3', 15.2, 0, 7.75, 'dining');
   N('dn1', 12.6, 0, 6.5, 'dining'); N('dn2', 15.45, 0, 6.5, 'dining'); N('dn3', 15.45, 0, 2.7, 'dining'); N('dn4', 13.2, 0, 2.7, 'dining');
   N('k1', 15.2, 0, 9.4, 'kitchen'); N('k2', 14.8, 0, 10.5, 'kitchen'); N('k3', 12.95, 0, 10.75, 'kitchen'); N('k4', 12.95, 0, 9.0, 'kitchen');
   N('u1', 8.6, 0, 10.6, 'utility'); N('u2', 10.4, 0, 10.3, 'utility');
-  N('g1', 9.85, 0, 12.6, 'garage'); N('g2', 9.3, 0, 14.8, 'garage'); N('g3', 9.3, 0, 18.9, 'garage'); N('g4', 13.6, 0, 18.9, 'garage'); N('g5', 14.2, 0, 15.0, 'garage'); N('g6', 13.8, 0, 13.1, 'garage');
+  N('g1', 10.7, 0, 12.6, 'garage'); N('g2', 9.3, 0, 14.8, 'garage'); N('g3', 9.3, 0, 18.9, 'garage'); N('g4', 13.6, 0, 18.9, 'garage'); N('g5', 14.2, 0, 15.0, 'garage'); N('g6', 13.8, 0, 13.1, 'garage');
   N('s1', 10.7, 0, 6.6, 'stair'); N('s2', 10.7, BY, 2.45, 'stairB');
-  N('x1', 12.5, BY, 6.3, 'basement'); N('x2', 12.3, BY, 10.2, 'basement'); N('x3', 15.0, BY, 10.3, 'basement'); N('x4', 15.0, BY, 4.6, 'basement');
+  N('x1', 13.3, BY, 6.3, 'basement'); N('x2', 12.3, BY, 10.2, 'basement'); N('x3', 15.0, BY, 10.3, 'basement'); N('x4', 15.0, BY, 4.6, 'basement');
   N('x5', 13.4, BY, 3.6, 'basement'); N('x6', 14.9, BY, 8.2, 'basement'); N('x7', 11.2, BY, 9.4, 'basement');
   // doorways
   N('de', 1.6, 0, 3.3, 'master ensuite'); N('dw', 4.1, 0, 3.3, 'master'); N('dm', 4.75, 0, 8.6, 'master foyer');
   N('dn', 3.4, 0, 12.05, 'nancy foyer'); N('db', 3.4, 0, 14.7, 'bath foyer'); N('dh', 3.97, 0, 16.3, 'hobby foyer');
   N('da', 6.4, 0, 8.6, 'foyer living'); N('du', 7.5, 0, 10.65, 'foyer utility'); N('dl', 9.6, 0, 7.75, 'living dining');
-  N('dk', 15.3, 0, 8.6, 'kitchen dining'); N('dg', 9.85, 0, 11.8, 'utility garage');
+  N('dk', 15.3, 0, 8.6, 'kitchen dining'); N('dg', 10.7, 0, 11.8, 'utility garage'); N('dc', 10.7, 0, 8.6, 'dining utility');
   N('ds', 10.7, 0, 6.9, 'dining stair'); N('dx', 12.2, BY, 2.6, 'stairB basement');
   const edge = (a, b) => { if (!a.edges.includes(b)) { a.edges.push(b); b.edges.push(a); } };
   for (let i = 0; i < NAV.length; i++) for (let j = i + 1; j < NAV.length; j++) {
@@ -4018,7 +4019,7 @@ function placeFuseBox(where) {
   f.pos.copy(f.group.position);
   f.where = where;
 }
-const BONE_SPOTS = [[1.8, 0, 2.6], [4.2, 0, 2.0], [3.0, 0, 7.6], [2.6, 0, 9.9], [1.0, 0, 14.4], [1.9, 0, 19.2], [4.6, 0, 14.0], [7.0, 0, 11.4], [8.2, 0, 3.8], [15.3, 0, 3.0], [15.4, 0, 9.0], [10.8, 0, 9.6], [9.0, 0, 13.0], [14.0, 0, 17.0], [12.3, BY, 7.2], [15.0, BY, 9.0]];
+const BONE_SPOTS = [[1.8, 0, 2.6], [4.2, 0, 2.0], [3.0, 0, 7.6], [2.6, 0, 9.9], [1.0, 0, 14.4], [1.9, 0, 19.2], [4.6, 0, 14.0], [7.0, 0, 11.4], [8.2, 0, 3.8], [15.3, 0, 3.0], [15.4, 0, 9.0], [9.9, 0, 10.4], [9.0, 0, 13.0], [14.0, 0, 17.0], [12.3, BY, 7.2], [15.0, BY, 9.0]];
 function buildBone(scene) {
   const g = new THREE.Group();
   bx(M.porcelain, 0.04, 0.03, 0.22, 0, 0.015, 0, g); bx(M.porcelain, 0.07, 0.04, 0.04, 0, 0.02, 0.11, g); bx(M.porcelain, 0.07, 0.04, 0.04, 0, 0.02, -0.11, g);
@@ -4857,7 +4858,7 @@ const UI = {
       <h3>Staying alive</h3>
       <ul>
         <li>Your sanity drains in dark rooms. Ghosts can start a <b>hunt</b> when it gets low (usually 50%). Lights flicker, the front door locks and the ghost comes for you.</li>
-        <li>Break line of sight and <b>hide</b> in a closet or locker (foyer, living room, Nancy's room, hobby room, the master walk-in closet, the garage lockers, the boarded nook in the basement) and close the door with <kbd>E</kbd>.</li>
+        <li>Break line of sight and <b>hide</b> in a closet or locker (the coat closet by the front door, foyer, living room, Nancy's room, hobby room, the master walk-in closet, the garage lockers, the boarded nook in the basement) and close the door with <kbd>E</kbd>.</li>
         <li><b>Turn your flashlight and electronics off</b> while hiding: ghosts sense active electronics within 7.5 m. Talking gives you away too.</li>
         <li>Crucifixes stop hunts, smudge sticks delay them (or blind the ghost during a hunt), and sanity medication restores sanity.</li>
         <li>The lights are on when you arrive, but the ghost can switch them off or cut the power. The fuse box is in the garage or at the bottom of the basement stairs.</li>
@@ -4960,7 +4961,7 @@ const JOURNAL = {
       R = ph.length > 6 ? `<h3>&nbsp;</h3><div class="photos">${ph.slice(6).map((p) => `<div class="photo">${p.img ? `<img src="${p.img}" alt="">` : ''}${esc(p.label)} ${'★'.repeat(p.stars)}</div>`).join('')}</div>` : '<h3>Photo rewards</h3><p>Ghost, D.O.T.S, fingerprints, ghost writing, salt footprints, thrown objects and the bone are worth money. Closer photos earn more stars.</p>';
     } else {
       L = `<h3>Map &middot; ${this.mapLevel === 0 ? 'Ground floor' : 'Basement'}</h3><canvas id="jmap" width="480" height="300"></canvas><p><button class="btn" data-jlevel style="color:#2b241b;border-color:#2b241b">Show ${this.mapLevel === 0 ? 'basement' : 'ground floor'}</button></p>`;
-      R = `<h3>Rooms</h3><p>${ROOMS.filter((r) => r.house).map((r) => r.name).join(' · ')}</p><p>The fuse box is in the <b>${WORLD.fuse && WORLD.fuse.where === 'garage' ? 'garage' : 'basement, at the bottom of the stairs'}</b>.</p><p>Hiding spots: Foyer closet, Living Room closet, Nancy's closet, Hobby Room closet, Master Bedroom walk-in closet, two Garage lockers, the boarded-up nook in the Basement.</p>`;
+      R = `<h3>Rooms</h3><p>${ROOMS.filter((r) => r.house).map((r) => r.name).join(' · ')}</p><p>The fuse box is in the <b>${WORLD.fuse && WORLD.fuse.where === 'garage' ? 'garage' : 'basement, at the bottom of the stairs'}</b>.</p><p>Hiding spots: the coat closet by the front door, Foyer closet, Living Room closet, Nancy's closet, Hobby Room closet, Master Bedroom walk-in closet, two Garage lockers, the boarded-up nook in the Basement.</p>`;
     }
     $('#jpages').innerHTML = `<div class="page">${L}</div><div class="page">${R}</div>`;
     if (this.tab === 'map') this.drawMap();

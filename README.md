@@ -33,16 +33,19 @@ settings) is saved in the browser.
 Coming up the front walk from the van, the porch and front door are in the
 middle with the Hobby Room on the left and the garage on the right.
 
-- **Foyer**: runs from the front door to the Living Room. A hallway beside it
-  leads to the **Hobby Room**, **Main Bathroom** and **Nancy's Room**.
+- **Foyer**: runs from the front door to the Living Room. A separate hallway
+  beside it (joined at the far end) leads to the **Hobby Room**, **Main
+  Bathroom** and **Nancy's Room**.
 - **Master Bedroom** at the back left, with the **Master Bathroom** and a
   walk-in closet.
 - **Living Room**, then the basement stairs and the **Dining Room** along the
   back. The dining room's corridor opens onto the **Kitchen** over a pony wall.
-- **Utility Room** between the foyer, kitchen and **Garage**.
+- **Utility Room** between the foyer, kitchen and **Garage**. Its door from the
+  dining corridor is straight across from the basement door and lines up with
+  the garage door.
 - **Basement**: one big room under the dining room and kitchen, with a model
   railway table to run around.
-- **Hiding spots**: Foyer closet, Living Room closet, Nancy's closet, Hobby
+- **Hiding spots**: the coat closet beside the front door, Foyer closet, Living Room closet, Nancy's closet, Hobby
   Room closet, the master walk-in closet, two garage lockers and a boarded-up
   nook in the basement.
 - **Fuse box**: in the garage (on your right as you come in from the utility
