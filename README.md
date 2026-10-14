@@ -3,8 +3,8 @@
 A ghost hunting game inspired by *Phasmophobia*, for 1 to 4 players, in **one
 HTML file** (`index.html`) that runs in Chrome on a Chromebook. It has a main
 menu, a lobby with contracts, difficulties and an equipment shop, online co-op,
-and one map: **6 Tanglewood Drive**, with its garage, basement and the van
-parked on the street to the left of the house.
+and one map: **6 Tanglewood Drive**, laid out like the reworked house in the
+real game, with the van parked on the street out front.
 
 > Fan project. Not affiliated with or endorsed by Kinetic Games.
 > "Phasmophobia" is a trademark of its owner. Every model, texture and sound is
@@ -27,6 +27,32 @@ updates it.
 
 Click the game to capture the mouse. Your progress (money, level, equipment,
 settings) is saved in the browser.
+
+## The house
+
+Coming up the front walk from the van, the porch and front door are in the
+middle with the Hobby Room on the left and the garage on the right.
+
+- **Foyer**: runs from the front door to the Living Room. A hallway beside it
+  leads to the **Hobby Room**, **Main Bathroom** and **Nancy's Room**.
+- **Master Bedroom** at the back left, with the **Master Bathroom** and a
+  walk-in closet.
+- **Living Room**, then the basement stairs and the **Dining Room** along the
+  back. The dining room's corridor opens onto the **Kitchen** over a pony wall.
+- **Utility Room** between the foyer, kitchen and **Garage**.
+- **Basement**: one big room under the dining room and kitchen, with a model
+  railway table to run around.
+- **Hiding spots**: Foyer closet, Living Room closet, Nancy's closet, Hobby
+  Room closet, the master walk-in closet, two garage lockers and a boarded-up
+  nook in the basement.
+- **Fuse box**: in the garage (on your right as you come in from the utility
+  room) or at the bottom of the basement stairs.
+- All the lights are on when you arrive.
+
+The textures are generated in code at high resolution (wood floors, wallpaper
+with baseboards and panelling, tiles, carpet, block walls, siding, shingles,
+grass). Settings has a *Retro PS1 look* switch if you prefer the old chunky
+style.
 
 ## Playing with friends (up to 4)
 
