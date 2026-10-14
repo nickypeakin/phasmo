@@ -335,7 +335,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const SAVE_KEY = 'phasmo-fan-tanglewood-v1';
 const DEFAULT_SETTINGS = {
   quality: 'auto', scale: 0.7, shadows: 'low', ps1: false, sens: 1, invertY: false, fov: 72, look: 2,
-  volume: 0.8, showSanity: true, showFps: false, roomNames: true, prompts: true, wobble: false, grain: true,
+  volume: 0.8, showSanity: true, showFps: false, roomNames: true, prompts: true, wobble: false, grain: true, bright: 1.5, aa: true,
 };
 const START_MONEY = 300;
 let SAVE = { settings: { ...DEFAULT_SETTINGS }, profile: null, diff: 'amateur' };
@@ -471,7 +471,7 @@ const ITEMS = {
   book: { name: 'Ghost Writing Book', price: 40, max: 2, start: 1, core: true, place: true, info: 'Place it near the ghost. Some ghosts write in it.' },
   uv: { name: 'UV Light', price: 35, max: 2, start: 1, core: true, elec: true, toggle: true, info: 'Reveals fingerprints on doors, switches and windows.' },
   video: { name: 'Video Camera', price: 50, max: 4, start: 1, core: true, elec: true, toggle: true, info: 'Night vision. Ghost Orbs are only visible on camera. Place it to watch from the van.' },
-  dots: { name: 'D.O.T.S. Projector', price: 65, max: 2, start: 1, core: true, elec: true, toggle: true, info: 'Projects a grid of green dots. Some ghosts walk through it.' },
+  dots: { name: 'D.O.T.S. Projector', price: 65, max: 2, start: 1, core: true, elec: true, toggle: true, info: 'Tier III: sweeps a wide grid of green dots across the room. Some ghosts walk through it.' },
   photo: { name: 'Photo Camera', price: 40, max: 3, start: 1, core: true, elec: true, info: 'Photograph evidence and the ghost for extra money.' },
   salt: { name: 'Salt', price: 15, max: 3, start: 1, info: 'Place piles. Ghosts that step in salt leave UV footprints.' },
   crucifix: { name: 'Crucifix', price: 30, max: 2, start: 0, info: 'Place near the ghost. Stops two hunts from starting within 3 m.' },
@@ -746,7 +746,7 @@ const SFX = {
 //  * Night vision, the camera flash and the UV light are uniforms too.
 //  * Optional PS1 look: vertex snapping + 15-bit ordered dithering.
 const canvas = $('#gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: SAVE.settings.aa !== false, powerPreference: 'high-performance', stencil: false });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.type = THREE.BasicShadowMap;
 renderer.setClearColor(0x020306);
@@ -763,15 +763,16 @@ const U = {
   uOut: { value: [new THREE.Vector4(0, -99, 0, 1), new THREE.Vector4(0, -99, 0, 1), new THREE.Vector4(0, -99, 0, 1)] },
   uOutC: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   uNV: { value: 0 },
-  uFlash: { value: new THREE.Vector4() },
-  uUVP: { value: new THREE.Vector4() },
+  uFlash: { value: new THREE.Vector4(0, 0, 0, 0) },   // w is on/off (Vector4() would default it to 1)
+  uUVP: { value: new THREE.Vector4(0, 0, 0, 0) },
   uUVD: { value: new THREE.Vector4(0, 0, -1, 0.9) },
   // local flashlight (beam pattern) and up to three teammates' flashlights
-  uFL: { value: new THREE.Vector4() }, uFLD: { value: new THREE.Vector4(0, 0, -1, 0) },
-  uRF: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+  uFL: { value: new THREE.Vector4(0, 0, 0, 0) }, uFLD: { value: new THREE.Vector4(0, 0, -1, 0) },
+  uRF: { value: [new THREE.Vector4(0, 0, 0, 0), new THREE.Vector4(0, 0, 0, 0), new THREE.Vector4(0, 0, 0, 0)] },
   uRFD: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   uRFR: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   uPS1: { value: SAVE.settings.ps1 ? 1 : 0 },
+  uBright: { value: 1 / (SAVE.settings.bright || 1) },
   uSnap: { value: new THREE.Vector2(SAVE.settings.wobble ? 220 : 0, 165) },
 };
 const VERT_PARS = 'uniform vec2 uSnap;\nvarying vec3 vRLW;\n';
@@ -785,7 +786,7 @@ const VERT_SNIP = `
   if (uSnap.x > 0.0) gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uSnap + 0.5) / uSnap * gl_Position.w;
 }`;
 const FRAG_PARS = `
-uniform float uPS1;
+uniform float uPS1; uniform float uBright;
 varying vec3 vRLW;
 `;
 const LIGHT_PARS = `
@@ -855,7 +856,10 @@ vec3 houseLight(vec3 p, vec3 nV) {
   return c;
 }
 `;
-const DITHER = `
+// the Brightness setting: lifts dark areas (1 = unchanged) without blowing out lit ones
+const BRIGHT = `
+gl_FragColor.rgb = pow(max(gl_FragColor.rgb, vec3(0.0)), vec3(uBright));`;
+const DITHER = BRIGHT + `
 if (uPS1 > 0.5) {
   vec2 q = mod(floor(gl_FragCoord.xy), 2.0);
   float b = mod(q.x * 2.0 + q.y * 3.0, 4.0) / 4.0 - 0.375;
@@ -2389,15 +2393,26 @@ function buildModel(it) {
       for (const a of [0, 2.1, 4.2]) { const leg = bx(M.black, 0.015, 0.95, 0.015, Math.sin(a) * 0.14, -0.5, Math.cos(a) * 0.14, P.tripod); leg.rotation.set(Math.cos(a) * 0.28, 0, -Math.sin(a) * 0.28); }
       break;
     }
-    case 'dots': { // rounded projector with a green laser lens near the front
+    case 'dots': { // Tier III: a scanner head on a swivel base; the head sweeps the dot grid from side to side
       const I = itemMats();
-      slab(I.dotsBody, roundRect(0.07, 0.11, 0.03), 0.034, 0.004, g);
-      slab(I.dotsPanel, roundRect(0.05, 0.08, 0.02), 0.004, 0, g).position.set(0, 0.022, 0.004);
-      const em = P.emitter = new THREE.Group(); em.position.set(0, 0.027, -0.03); em.rotation.x = -2.26; g.add(em);
-      const bz = cyl(I.bezel, 0.014, 0.016, 0.008, 12, 0, 0, -0.003, em); bz.rotation.x = Math.PI / 2;
-      P.lens = basicMat({ color: 0x0a200d }); const l = new THREE.Mesh(new THREE.CircleGeometry(0.0095, 12), P.lens); l.position.z = 0.0012; em.add(l); l.castShadow = false;
+      slab(I.dotsBody, roundRect(0.08, 0.09, 0.022), 0.018, 0.003, g).position.y = -0.01;
+      slab(I.dotsPanel, roundRect(0.062, 0.072, 0.016), 0.002, 0, g).position.y = 0.0025;
+      P.led = basicMat({ color: 0x0a200d }); bx(P.led, 0.036, 0.004, 0.003, 0, -0.01, -0.0465, g);
+      for (let i = 0; i < 3; i++) bx(I.bezel, 0.003, 0.01, 0.003, 0.0418, -0.01, -0.012 + i * 0.008, g); // the "III" on its side
+      cyl(I.bezel, 0.027, 0.031, 0.007, 20, 0, 0.007, 0, g);
+      const hd = P.head = new THREE.Group(); hd.position.y = 0.011; g.add(hd);
+      cyl(I.dotsBody, 0.011, 0.014, 0.024, 14, 0, 0.012, 0, hd);
+      for (const sx of [-1, 1]) bx(I.dotsBody, 0.006, 0.03, 0.02, sx * 0.031, 0.035, 0, hd);   // yoke arms
+      const tl = P.tilt = new THREE.Group(); tl.position.y = 0.044; tl.rotation.x = 0.18; hd.add(tl);
+      const drum = cyl(I.dotsBody, 0.025, 0.025, 0.062, 22, 0, 0, 0.002, tl); drum.rotation.x = Math.PI / 2;
+      const back = cyl(I.dotsPanel, 0.02, 0.025, 0.006, 22, 0, 0, 0.036, tl); back.rotation.x = Math.PI / 2;
+      const bz = cyl(I.bezel, 0.023, 0.026, 0.008, 22, 0, 0, -0.031, tl); bz.rotation.x = Math.PI / 2;
+      const em = P.emitter = new THREE.Group(); em.position.z = -0.0352; em.rotation.y = Math.PI; tl.add(em);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.0125, 0.019, 22), I.lensDark); em.add(ring);
+      P.lens = basicMat({ color: 0x0a200d }); const l = new THREE.Mesh(new THREE.CircleGeometry(0.0125, 22), P.lens); l.position.z = 0.0004; em.add(l); l.castShadow = false;
+      P.topLed = basicMat({ color: 0x0a200d }); bx(P.topLed, 0.004, 0.003, 0.03, 0, 0.0255, 0.004, tl);
       P.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0x6dff7a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-      P.glow.scale.setScalar(0.1); P.glow.position.z = 0.006; P.glow.visible = false; em.add(P.glow);
+      P.glow.scale.setScalar(0.12); P.glow.position.z = 0.004; P.glow.visible = false; em.add(P.glow);
       break;
     }
     case 'photo': {
@@ -2464,7 +2479,7 @@ class Item {
     if (!this.def.toggle) return;
     this.on = v; if (sound) SFX.toggle(v);
     if (this.type === 'uv') this.parts.lens.color.set(v ? 0x9a4dff : 0x221133);
-    if (this.type === 'dots') { this.parts.lens.color.set(v ? 0xb8ffc4 : 0x0a200d); this.parts.glow.visible = v; if (this.where === 'world') DOTS.refresh(this); }
+    if (this.type === 'dots') { for (const k of ['lens', 'led', 'topLed']) this.parts[k].color.set(v ? 0xb8ffc4 : 0x0a200d); this.parts.glow.visible = v; if (this.where === 'world') DOTS.refresh(this); }
     if (this.type === 'video') { this.parts.led.color.set(v ? 0xff2020 : 0x220000); this.parts.screen.color.set(v ? 0xa8ffb0 : 0x050805); this.parts.screen.map = v ? NV.handRT.texture : null; this.parts.screen.needsUpdate = true; }
     if (this.type === 'emf' && !v) this.parts.leds.forEach((m, i) => m.color.copy(EMF_OFF[i]));
     if (this.type === 'thermometer') this.drawThermo(v ? '…' : '');
@@ -2534,19 +2549,26 @@ function removeItem(it) {
   if (it.type === 'dots') DOTS.clear(it);
 }
 
-// ---- D.O.T.S. projector: green laser dots from rays ----
+// ---- D.O.T.S. projector (Tier III): a wide grid of green laser dots that sweeps from side to side ----
+// The dots for the whole sweep are traced once (column by column across the sweep), then each frame only
+// the columns inside the moving window are drawn. The sweep follows the shared game clock, so everyone
+// in a co-op game sees it in the same place.
 const DOTS = {
   sets: new Map(),
+  SWEEP: 0.75, HALF_W: 0.5, HALF_H: 0.42, TILT: 0.18, PERIOD: 7, RANGE: 7,
+  sweepAt(it) { return this.SWEEP * Math.sin(((GAME.time + (it.id || 0) * 1.37) / this.PERIOD) * Math.PI * 2); },
   refresh(it) {
     this.clear(it);
     if (!it.on) return;
     const o = (it.parts.emitter || it.mesh).getWorldPosition(V3()), fwd = V3(0, 0, -1).applyQuaternion(it.mesh.getWorldQuaternion(new THREE.Quaternion()));
-    if (it.where === 'world') fwd.y = 0.05, fwd.normalize();
-    const pts = [], dir = V3(), up = V3(0, 1, 0), right = V3().crossVectors(fwd, up).normalize(), u2 = V3().crossVectors(right, fwd);
+    const placed = it.where === 'world';
+    if (placed) { fwd.y = 0; if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize(); }
+    const up = V3(0, 1, 0), right = V3().crossVectors(fwd, up).normalize(), u2 = V3().crossVectors(right, fwd).normalize(), dir = V3();
+    const tilt = placed ? this.TILT : 0, R = this.RANGE;
     const fl = floorAt(o.x, o.z, o.y), ceil = fl + H - 0.03;
     // a fast ray test against only the walls and furniture within reach (thousands of rays)
     const near = COL.filter((c) => !c.off && !c.noRay && !(o.x > c.x0 && o.x < c.x1 && o.y > c.y0 && o.y < c.y1 && o.z > c.z0 && o.z < c.z1)
-      && Math.max(c.x0 - o.x, o.x - c.x1, 0) ** 2 + Math.max(c.y0 - o.y, o.y - c.y1, 0) ** 2 + Math.max(c.z0 - o.z, o.z - c.z1, 0) ** 2 < 49);
+      && Math.max(c.x0 - o.x, o.x - c.x1, 0) ** 2 + Math.max(c.y0 - o.y, o.y - c.y1, 0) ** 2 + Math.max(c.z0 - o.z, o.z - c.z1, 0) ** 2 < R * R);
     const hitT = (dx, dy, dz, maxT) => {
       const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz; let best = maxT;
       for (const c of near) {
@@ -2557,37 +2579,54 @@ const DOTS = {
       }
       return best;
     };
-    // rings of laser dots around the beam, like a diffraction grating (fewer while it's in your hand)
-    const step = it.where === 'hand' ? 0.06 : 0.04;
-    for (let k = 0; k * step <= 1.0; k++) {
-      const r = k * step, n = k ? Math.round((2 * Math.PI * r) / step) : 1;
-      for (let j = 0; j < n; j++) {
-        const a = (j / n) * Math.PI * 2 + k * 0.37, sr = Math.sin(r);
-        dir.copy(fwd).multiplyScalar(Math.cos(r)).addScaledVector(right, sr * Math.cos(a)).addScaledVector(u2, sr * Math.sin(a)).normalize();
-        let t = hitT(dir.x, dir.y, dir.z, 7);
+    // a regular grid (alternate rows offset by half a step), fewer dots while it's in your hand
+    const step = placed ? 0.034 : 0.055, A = this.SWEEP + this.HALF_W, nc = Math.floor((2 * A) / step) + 1;
+    const pts = [], cols = [];
+    for (let i = 0; i < nc; i++) {
+      cols.push(pts.length / 3);
+      for (let e = -this.HALF_H, row = 0; e <= this.HALF_H + 1e-6; e += step, row++) {
+        const a = -A + (i + (row & 1) * 0.5) * step, el = e + tilt, ce = Math.cos(el);
+        dir.copy(fwd).multiplyScalar(Math.cos(a) * ce).addScaledVector(right, Math.sin(a) * ce).addScaledVector(u2, Math.sin(el)).normalize();
+        let t = hitT(dir.x, dir.y, dir.z, R);
         if (dir.y < -0.01) { const tf = (fl - o.y) / dir.y; if (tf > 0 && tf < t) t = tf; }
         if (dir.y > 0.01) { const tc = (ceil - o.y) / dir.y; if (tc > 0 && tc < t) t = tc; }
-        if (t < 6.9) pts.push(o.x + dir.x * (t - 0.02), o.y + dir.y * (t - 0.02), o.z + dir.z * (t - 0.02));
+        if (t < R - 0.1) pts.push(o.x + dir.x * (t - 0.02), o.y + dir.y * (t - 0.02), o.z + dir.z * (t - 0.02));
       }
     }
+    cols.push(pts.length / 3);
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x74ff8a, size: 0.05, map: dotTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    mesh.frustumCulled = false;
     WORLD.scene.add(mesh);
-    this.sets.set(it, { mesh, origin: o, fwd, room: roomAt(o.x, o.y + 0.2, o.z), t: 0 });
+    const set = { mesh, origin: o, fwd, right, u2, tilt, cols, A, step, room: roomAt(o.x, o.y + 0.2, o.z), t: 0, c: 0 };
+    this.sets.set(it, set);
+    this.sweep(it, set);
+  },
+  // move the window of visible dot columns (and the projector's head) to where the sweep is now
+  sweep(it, s) {
+    const c = s.c = this.sweepAt(it), n = s.cols.length - 1;
+    const i0 = clamp(Math.ceil((c - this.HALF_W + s.A) / s.step), 0, n), i1 = clamp(Math.floor((c + this.HALF_W + s.A) / s.step) + 1, i0, n);
+    s.mesh.geometry.setDrawRange(s.cols[i0], s.cols[i1] - s.cols[i0]);
+    if (it.parts.head) it.parts.head.rotation.y = -c;
   },
   clear(it) { const s = this.sets.get(it); if (s) { WORLD.scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); this.sets.delete(it); } },
   clearAll() { for (const it of [...this.sets.keys()]) this.clear(it); },
-  // is a world point lit by any projector?
+  // is a world point lit by any projector right now?
   covers(p) {
     for (const s of this.sets.values()) {
       _v2.subVectors(p, s.origin); const d = _v2.length();
-      if (d < 6 && d > 0.2 && _v2.dot(s.fwd) / d > 0.55 && los(V3(s.origin.x, s.origin.y, s.origin.z), V3(p.x, p.y, p.z))) return s;
+      if (d > this.RANGE - 0.5 || d < 0.2) continue;
+      const f = _v2.dot(s.fwd), r = _v2.dot(s.right), u = _v2.dot(s.u2);
+      if (f <= 0) continue;
+      const a = Math.atan2(r, f), el = Math.atan2(u, Math.hypot(f, r)) - s.tilt;
+      if (Math.abs(a - s.c) < this.HALF_W && Math.abs(el) < this.HALF_H && los(V3(s.origin.x, s.origin.y, s.origin.z), V3(p.x, p.y, p.z))) return s;
     }
     return null;
   },
   update(dt) {
     for (const [it, s] of this.sets) {
-      if (it.where === 'hand') { s.t += dt; if (s.t > 0.25) this.refresh(it); }
+      if (it.where === 'hand') { s.t += dt; if (s.t > 0.25) { this.refresh(it); continue; } }
+      this.sweep(it, s);
       s.mesh.material.opacity = 0.75 + Math.random() * 0.25;
     }
   },
@@ -2639,28 +2678,80 @@ const ORBS = {
 };
 
 // ---------------------------------------------------------------- GHOST -----
+// ---- people: one smooth, rounded body shared by the ghost and the players ----
+// shapes are built once and shared; the model faces +z with its feet at y = 0. Limbs hang from pivots
+// (shoulders and hips) so walking only swings armL/armR/legL/legR around x.
+let HUMAN_GEO = null;
+function humanGeo() {
+  if (HUMAN_GEO) return HUMAN_GEO;
+  const V2 = (x, y) => new THREE.Vector2(x, y);
+  const lathe = (pts, seg = 18) => new THREE.LatheGeometry(pts.map(([x, y]) => V2(x, y)), seg);
+  const torso = (w) => lathe([[0.001, 0], [0.13 * w, 0.0], [0.152 * w, 0.06], [0.146 * w, 0.2], [0.142, 0.29], [0.158, 0.41], [0.182, 0.5], [0.178, 0.56], [0.13, 0.6], [0.05, 0.625], [0.001, 0.632]]).scale(1, 1, 0.62);
+  const sph = (r, w = 14, h = 10) => new THREE.SphereGeometry(r, w, h);
+  HUMAN_GEO = {
+    torso: torso(1), torsoW: torso(1.08),
+    pelvis: sph(0.14).scale(1, 0.62, 0.7),
+    neck: new THREE.CylinderGeometry(0.045, 0.052, 0.12, 12),
+    head: sph(0.115, 22, 16).scale(0.9, 1.08, 1.0),
+    shoulder: sph(0.06, 12, 8),
+    upperArm: new THREE.CapsuleGeometry(0.047, 0.22, 4, 10),
+    foreArm: new THREE.CapsuleGeometry(0.04, 0.2, 4, 10),
+    hand: sph(0.042, 10, 8).scale(0.72, 1.25, 0.55),
+    thigh: new THREE.CapsuleGeometry(0.074, 0.3, 4, 10),
+    shin: new THREE.CapsuleGeometry(0.057, 0.32, 4, 10),
+    shoe: sph(0.06, 12, 8).scale(0.95, 0.55, 1.9),
+    eye: sph(0.022, 10, 8),
+    hairShort: new THREE.SphereGeometry(0.122, 22, 10, 0, Math.PI * 2, 0, Math.PI * 0.44).scale(0.94, 1.1, 1.05),
+    hairLong: new THREE.CapsuleGeometry(0.1, 0.28, 4, 12).scale(1.15, 1, 0.5),
+    capTop: new THREE.SphereGeometry(0.125, 22, 8, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(0.93, 0.85, 1.0),
+    brim: sph(0.1, 16, 6).scale(0.95, 0.07, 0.8),
+    skirt: lathe([[0.158, 0.5], [0.175, 0.4], [0.21, 0.22], [0.25, 0.0]], 20).scale(1, 1, 0.75),
+  };
+  return HUMAN_GEO;
+}
+// o: { skin, top, bottom, shoe, hair, eyes, hairStyle: 'short'|'long'|'cap', skirt, scale }
+function buildHumanoid(o) {
+  const G = humanGeo();
+  const add = (geo, mat, parent, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  const root = new THREE.Group(), body = new THREE.Group(); body.scale.setScalar(o.scale || 1); root.add(body);
+  const torso = add(o.skirt ? G.torsoW : G.torso, o.top, body, 0, 0.88, 0);
+  add(G.pelvis, o.bottom, body, 0, 0.92, 0);
+  if (o.skirt) add(G.skirt, o.top, body, 0, 0.45, 0);
+  add(G.neck, o.skin, body, 0, 1.52, 0);
+  for (const sx of [-1, 1]) add(G.shoulder, o.top, body, sx * 0.175, 1.44, 0);
+  const head = new THREE.Group(); head.position.set(0, 1.62, 0); body.add(head);
+  add(G.head, o.skin, head, 0, 0.04, 0);
+  for (const sx of [-1, 1]) add(G.eye, o.eyes, head, sx * 0.04, 0.055, 0.097).scale.set(o.ghost ? 1.25 : 0.62, o.ghost ? 0.85 : 0.62, 0.5);
+  if (o.ghost) add(G.eye, o.eyes, head, 0, -0.035, 0.1).scale.set(1.05, 1.6, 0.45);   // a gaping mouth
+  // hair is a cap tipped back so the forehead and eyes stay clear
+  const hair = (y, tip) => { add(G.hairShort, o.hair, head, 0, y, -0.004).rotation.x = -tip; };
+  if (o.hairStyle === 'long') { hair(0.04, 0.38); add(G.hairLong, o.hair, head, 0, -0.1, -0.075); }
+  else if (o.hairStyle === 'cap') { hair(0.03, 0.75); add(G.capTop, o.top, head, 0, 0.075, -0.005); add(G.brim, o.top, head, 0, 0.085, 0.085); }
+  else hair(0.042, 0.38);
+  const limb = (x, y) => { const pv = new THREE.Group(); pv.position.set(x, y, 0); body.add(pv); return pv; };
+  const armL = limb(-0.215, 1.46), armR = limb(0.215, 1.46);
+  for (const [pv, sx] of [[armL, -1], [armR, 1]]) {
+    add(G.upperArm, o.top, pv, sx * 0.012, -0.15, 0).rotation.z = sx * 0.05;
+    add(G.foreArm, o.sleeve || o.skin, pv, sx * 0.022, -0.42, 0.012);
+    add(G.hand, o.skin, pv, sx * 0.024, -0.6, 0.016);
+  }
+  const legL = limb(-0.095, 0.92), legR = limb(0.095, 0.92);
+  for (const pv of [legL, legR]) {
+    add(G.thigh, o.bottom, pv, 0, -0.2, 0);
+    add(G.shin, o.bottom, pv, 0, -0.63, 0);
+    add(G.shoe, o.shoe, pv, 0, -0.875, 0.045);
+  }
+  return { root, body, head, armL, armR, legL, legR, torso };
+}
 function buildGhostModel(kind, override) {
   const s = kind === 'child' ? 0.7 : kind === 'woman' ? 0.95 : 1.0;
   const skin = override || litMat({ color: 0x80848c, emissive: 0x111216 });
   const cloth = override || litMat({ color: kind === 'woman' ? 0x2e2832 : 0x23252a, emissive: 0x08080a });
   const dark = override || basicMat({ color: 0x050505 });
-  const root = new THREE.Group();
-  const body = new THREE.Group(); body.scale.setScalar(s); root.add(body);
-  const torso = bx(cloth, 0.4, 0.6, 0.22, 0, 1.2, 0, body);
-  if (kind === 'woman') bx(cloth, 0.46, 0.5, 0.3, 0, 0.72, 0, body);
-  const head = new THREE.Group(); head.position.set(0, 1.62, 0); body.add(head);
-  const sk = new THREE.Mesh(new THREE.SphereGeometry(0.125, 7, 5), skin); sk.scale.set(0.9, 1.12, 0.95); sk.castShadow = true; head.add(sk);
-  // the model faces +z (its yaw points along +z)
-  bx(dark, 0.055, 0.045, 0.03, -0.045, 0.02, 0.105, head); bx(dark, 0.055, 0.045, 0.03, 0.045, 0.02, 0.105, head);
-  bx(dark, 0.065, 0.06, 0.03, 0, -0.065, 0.1, head);
-  bx(skin, 0.09, 0.09, 0.09, 0, 1.47, 0, body);
-  if (kind === 'woman') bx(override || basicMat({ color: 0x0a0806 }), 0.27, 0.42, 0.12, 0, -0.08, -0.06, head);
-  else bx(override || basicMat({ color: 0x0f0c09 }), 0.24, 0.07, 0.25, 0, 0.12, -0.01, head);
-  const limb = (x, y, w, h, mat) => { const pv = new THREE.Group(); pv.position.set(x, y, 0); body.add(pv); bx(mat, w, h, w, 0, -h / 2, 0, pv); return pv; };
-  const armL = limb(-0.26, 1.48, 0.1, 0.66, skin), armR = limb(0.26, 1.48, 0.1, 0.66, skin);
-  const legL = limb(-0.11, 0.9, 0.15, 0.9, cloth), legR = limb(0.11, 0.9, 0.15, 0.9, cloth);
-  root.traverse((o) => { if (o.isMesh) { o.castShadow = !override; o.receiveShadow = false; } });
-  return { root, body, head, armL, armR, legL, legR, torso, scale: s, skin, cloth };
+  const hair = override || basicMat({ color: kind === 'woman' ? 0x0a0806 : 0x0f0c09 });
+  const m = buildHumanoid({ skin, top: cloth, bottom: cloth, shoe: dark, hair, eyes: dark, sleeve: cloth, hairStyle: kind === 'woman' ? 'long' : 'short', skirt: kind === 'woman', ghost: true, scale: s });
+  m.root.traverse((o) => { if (o.isMesh) { o.castShadow = !override; o.receiveShadow = false; } });
+  return { ...m, scale: s, skin, cloth };
 }
 
 class Ghost {
@@ -2975,7 +3066,7 @@ class Ghost {
     if (this.nextDots <= 0) {
       this.nextDots = rand(9, 20);
       if (DOTS.covers(V3(this.pos.x, this.pos.y + 1, this.pos.z)) || [...DOTS.sets.values()].some((s) => s.room === this.room)) {
-        this.dotsT = rand(1.6, 2.6);
+        this.dotsT = rand(2.4, 3.6);
         const s = [...DOTS.sets.values()].find((x) => x.room === this.room);
         if (s) { const a = rand(-0.5, 0.5); this.path = [V3(s.origin.x + (s.fwd.x * Math.cos(a) - s.fwd.z * Math.sin(a)) * rand(1.5, 3), this.pos.y, s.origin.z + (s.fwd.z * Math.cos(a) + s.fwd.x * Math.sin(a)) * rand(1.5, 3))]; }
       }
@@ -3572,8 +3663,7 @@ const GAME = {
     // fuse box spawns in the garage or at the bottom of the basement stairs
     placeFuseBox(chance(0.5) ? 'garage' : 'basement');
     this.setBreaker(D.breaker, false);
-    // every light in the house starts on
-    for (const r of ROOMS) if (r.house && r.switches && r.switches.length) { r.switchOn = true; r.switches.forEach((sw) => sw.sync()); }
+    // every light in the house starts off (resetWorld switched them all off)
     // the ghost
     const qs = new URLSearchParams(location.search), want = qs.has('debug') && qs.get('ghost');
     const g = this.ghost = new Ghost(GHOST_BY_ID[want] ? want : pick(GHOSTS).id, WORLD.scene);
@@ -4169,16 +4259,7 @@ function dropGearOf(p) {
 const AVATAR_COLORS = [0x3b6ea8, 0xa8453b, 0x4f8a3e, 0xb08a2e];
 function buildAvatar(color, name) {
   const shirt = litMat({ color, emissive: 0x050505 }), skin = litMat({ color: 0xc9a27e }), jeans = litMat({ color: 0x2c3442 });
-  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  bx(shirt, 0.42, 0.58, 0.24, 0, 1.2, 0, body);
-  bx(jeans, 0.4, 0.12, 0.24, 0, 0.88, 0, body);
-  const head = new THREE.Group(); head.position.set(0, 1.62, 0); body.add(head);
-  const h = new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 5), skin); h.scale.set(0.95, 1.1, 1); head.add(h);
-  bx(shirt, 0.25, 0.08, 0.27, 0, 0.1, -0.01, head);
-  bx(M.black, 0.04, 0.03, 0.02, -0.045, 0.02, 0.11, head); bx(M.black, 0.04, 0.03, 0.02, 0.045, 0.02, 0.11, head);
-  const limb = (x, y, w, hgt, mat) => { const pv = new THREE.Group(); pv.position.set(x, y, 0); body.add(pv); bx(mat, w, hgt, w, 0, -hgt / 2, 0, pv); return pv; };
-  const armL = limb(-0.26, 1.46, 0.1, 0.62, shirt), armR = limb(0.26, 1.46, 0.1, 0.62, shirt);
-  const legL = limb(-0.1, 0.84, 0.15, 0.84, jeans), legR = limb(0.1, 0.84, 0.15, 0.84, jeans);
+  const { root, body, head, armL, armR, legL, legR } = buildHumanoid({ skin, top: shirt, bottom: jeans, shoe: M.dgrey, hair: M.brown, eyes: M.black, sleeve: shirt, hairStyle: 'cap' });
   const torch = buildTorch(); torch.group.position.set(0, -0.62, 0.03); torch.group.rotation.set(-Math.PI / 2, 0, 0); armL.add(torch.group);
   const slot = new THREE.Group(); slot.position.set(0, -0.64, 0.04); slot.rotation.set(-Math.PI / 2, 0, 0); armR.add(slot);
   const label = makeLabel(); drawLabel(label, name); label.position.y = 2.05; label.scale.set(0.6, 0.11, 1); root.add(label);
@@ -4887,7 +4968,9 @@ const UI = {
     const chk = (k) => `<input type="checkbox" data-set="${k}"${S[k] ? ' checked' : ''}>`;
     const rng = (k, a, b, st) => `<input type="range" data-set="${k}" min="${a}" max="${b}" step="${st}" value="${S[k]}">`;
     UI.modal(`<h2>SETTINGS</h2>
+      <div class="set-row"><span>Brightness (raise it if the dark is too dark to see)</span>${rng('bright', 0.6, 3, 0.05)}<span>${Math.round(S.bright * 100)}%</span></div>
       <div class="set-row"><span>Resolution</span>${sel('quality', [['auto', 'Auto (keeps ~60 fps)'], ['0.4', '40% (fastest)'], ['0.5', '50%'], ['0.65', '65%'], ['0.8', '80%'], ['1', '100% (sharpest)']])}<span class="muted" id="cur-scale"></span></div>
+      <div class="set-row"><span>Smooth edges (anti-aliasing, applies after a reload)</span>${chk('aa')}<span></span></div>
       <div class="set-row"><span>Flashlight shadows</span>${sel('shadows', [['off', 'Off (fastest)'], ['low', 'Low'], ['high', 'High']])}<span></span></div>
       <div class="set-row"><span>Retro PS1 look (dithering, chunky pixels)</span>${chk('ps1')}<span></span></div>
       <div class="set-row"><span>PS1 vertex wobble</span>${chk('wobble')}<span></span></div>
@@ -5170,7 +5253,7 @@ const APP = {
     if (S.quality !== 'auto') this.scale = parseFloat(S.quality);
     this.applyScale();
     camera.fov = S.fov; camera.updateProjectionMatrix();
-    U.uPS1.value = S.ps1 ? 1 : 0; U.uSnap.value.x = S.wobble ? 220 : 0;
+    U.uPS1.value = S.ps1 ? 1 : 0; U.uSnap.value.x = S.wobble ? 220 : 0; U.uBright.value = 1 / clamp(S.bright || 1, 0.5, 3);
     canvas.classList.toggle('px', !!S.ps1);
     AudioSys.setVolume(S.volume);
     const sh = S.shadows !== 'off';
@@ -5339,7 +5422,7 @@ document.addEventListener('input', (e) => {
   const k = e.target.dataset && e.target.dataset.set; if (!k) return;
   const S = SAVE.settings, el = e.target;
   if (el.type === 'checkbox') S[k] = el.checked;
-  else if (el.type === 'range') { S[k] = parseFloat(el.value); el.nextElementSibling && (el.nextElementSibling.textContent = k === 'volume' ? Math.round(S[k] * 100) + '%' : S[k]); }
+  else if (el.type === 'range') { S[k] = parseFloat(el.value); el.nextElementSibling && (el.nextElementSibling.textContent = k === 'volume' || k === 'bright' ? Math.round(S[k] * 100) + '%' : S[k]); }
   else S[k] = el.value;
   if (k === 'quality' && S.quality === 'auto') APP.scale = 0.7;
   persist(); APP.applySettings(true);
@@ -5387,7 +5470,7 @@ async function init() {
   if (joinCode && !NET.disabled) { APP.setState('lobby'); NET.join(joinCode); }
   else NET.host();
   // ?debug exposes internals for automated tests and tinkering in the console
-  if (new URLSearchParams(location.search).has('debug')) window.PHASMO = { THREE, GAME, PLAYER, WORLD, APP, ROOMS, ROOM, ITEM_LIST, VAN, NAV, camera, renderer, useHeld, dropHeld, interactPressed, selectSlot, pickUpItem, JOURNAL, AIM, updateAim, SAVE, NET, REMOTES, PL, KEYS, toggleAimedItem };
+  if (new URLSearchParams(location.search).has('debug')) window.PHASMO = { THREE, GAME, PLAYER, WORLD, APP, ROOMS, ROOM, ITEM_LIST, VAN, NAV, camera, renderer, useHeld, dropHeld, interactPressed, selectSlot, pickUpItem, JOURNAL, AIM, updateAim, SAVE, NET, REMOTES, PL, KEYS, toggleAimedItem, buildGhostModel, buildAvatar, DOTS, U };
   // ?norender runs the game without drawing (for automated multi-player tests)
   APP.noDraw = new URLSearchParams(location.search).has('norender');
   let last = performance.now(), lastFrame = last;
