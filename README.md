@@ -51,12 +51,22 @@ left and the garage door on the right.
   nook in the basement.
 - **Fuse box**: on the garage wall next to the utility room door, or on the far
   wall of the basement.
-- All the lights are on when you arrive.
+- Every light is off when you arrive: use your flashlight and the switches.
 
 The textures are generated in code at high resolution (wood floors, wallpaper
 with baseboards and panelling, tiles, carpet, block walls, siding, shingles,
-grass). Settings has a *Retro PS1 look* switch if you prefer the old chunky
-style.
+grass). The ghost and the other players have smooth, rounded bodies.
+
+Settings:
+- **Brightness**: raise it if the dark rooms are too dark to see in (default
+  150%; 100% is the darkest).
+- **Smooth edges**: anti-aliasing, on by default. Turn it off on a very slow
+  Chromebook (it applies after you reload the page).
+- **Retro PS1 look**: if you prefer the old chunky style.
+
+The **D.O.T.S. Projector** is the Tier III kind: a scanner head on a swivel
+base that sweeps a wide grid of green dots back and forth across the room (up
+to 7 m away). A D.O.T.S. ghost only shows up while the sweep passes over it.
 
 ## Playing with friends (up to 4)
 
