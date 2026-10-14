@@ -30,26 +30,27 @@ settings) is saved in the browser.
 
 ## The house
 
-Coming up the front walk from the van, the porch and front door are in the
-middle with the Hobby Room on the left and the garage on the right.
+The layout follows the 6 Tanglewood Drive floor plan. Coming up the front walk
+from the van, the front door is in a covered porch, with the Boys Bedroom on the
+left and the garage door on the right.
 
-- **Foyer**: runs from the front door to the Living Room. A separate hallway
-  beside it (joined at the far end) leads to the **Hobby Room**, **Main
-  Bathroom** and **Nancy's Room**.
-- **Master Bedroom** at the back left, with the **Master Bathroom** and a
-  walk-in closet.
-- **Living Room**, then the basement stairs and the **Dining Room** along the
-  back. The dining room's corridor opens onto the **Kitchen** over a pony wall.
-- **Utility Room** between the foyer, kitchen and **Garage**. Its door from the
-  dining corridor is straight across from the basement door and lines up with
-  the garage door.
-- **Basement**: one big room under the dining room and kitchen, with a model
-  railway table to run around.
-- **Hiding spots**: the coat closet beside the front door, Foyer closet, Living Room closet, Nancy's closet, Hobby
-  Room closet, the master walk-in closet, two garage lockers and a boarded-up
+- **Foyer**: from the front door straight up to the Living Room. A hall beside
+  it (joined halfway along) leads to the **Main Bathroom**, the **Boys
+  Bedroom**, the **Nursery** and a hall closet.
+- **Master Bedroom** at the back left, its door in the corner of the living
+  room. The **Master Bathroom** and **Master Closet** open off it.
+- **Living Room**, then the basement stairs, then the **Dining Room**, which
+  is open to the **Kitchen**. A diagonal wall cuts off the living room's corner
+  by the foyer closet.
+- **Utility Room** between the living room and the **Garage**, with a door
+  into each.
+- **Basement**: the stairs go down towards the back of the house. It has four
+  work tables, the furnace and a water heater.
+- **Hiding spots**: the Master Closet, the hall closet next to the Nursery, the
+  Foyer closet, the Boys Bedroom closet, two garage lockers and a boarded-up
   nook in the basement.
-- **Fuse box**: in the garage (on your right as you come in from the utility
-  room) or at the bottom of the basement stairs.
+- **Fuse box**: on the garage wall next to the utility room door, or on the far
+  wall of the basement.
 - All the lights are on when you arrive.
 
 The textures are generated in code at high resolution (wood floors, wallpaper
